@@ -32,11 +32,11 @@ const Hero = () => {
                     >
                         Authentic Italian Pizza & Biryani
                     </motion.div>
-                    <h1 className="text-5xl md:text-7xl font-display font-bold leading-tight">
+                    <h1 className="text-4xl sm:text-5xl md:text-7xl font-display font-bold leading-tight">
                         SLICE OF <span className="text-[var(--color-pizza-red)]">HEAVEN</span> <br />
                         DELIVERED
                     </h1>
-                    <p className="text-gray-400 text-lg md:text-xl max-w-lg mx-auto md:mx-0">
+                    <p className="text-gray-400 text-base md:text-xl max-w-lg mx-auto md:mx-0 font-medium">
                         Experience the finest handcrafted pizzas in Silapather. Fresh ingredients, melting cheese, and a taste you can't resist.
                     </p>
                     <div className="flex flex-col sm:flex-row items-center gap-4 justify-center md:justify-start pt-4">
@@ -60,7 +60,7 @@ const Hero = () => {
                     transition={{ duration: 1, type: "spring" }}
                     className="relative flex justify-center items-center"
                 >
-                    <div className="relative w-[320px] h-[320px] md:w-[500px] md:h-[500px]">
+                    <div className="relative w-[280px] h-[280px] sm:w-[320px] sm:h-[320px] md:w-[500px] md:h-[500px]">
 
                         {/* 1. Pulsating Glow Effect Behind */}
                         <motion.div

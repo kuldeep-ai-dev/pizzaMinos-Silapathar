@@ -59,11 +59,11 @@ const Reservation = () => {
                             initial={{ opacity: 0, x: -30 }}
                             whileInView={{ opacity: 1, x: 0 }}
                             viewport={{ once: true }}
-                            className="text-4xl md:text-5xl font-display font-bold text-white uppercase"
+                            className="text-3xl sm:text-4xl md:text-5xl font-display font-bold text-white uppercase"
                         >
                             Book a <span className="text-[var(--color-pizza-red)]">Table</span>
                         </motion.h2>
-                        <p className="text-gray-400 text-lg">
+                        <p className="text-gray-400 text-base md:text-lg">
                             Reserve your spot for an unforgettable dining experience. Perfect for family gatherings, dates, or parties.
                         </p>
 

@@ -4,9 +4,10 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MapPin, Loader2, Send, X, CheckCircle2, Banknote } from "lucide-react";
+import { MapPin, Loader2, Send, X, CheckCircle2, Banknote, User } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { createClient } from "@/utils/supabase/client";
+import { cn } from "@/lib/utils";
 import CopyButton from "../admin/CopyButton";
 
 const WHATSAPP_NUMBER = "919876543210";
@@ -16,8 +17,14 @@ interface CheckoutDialogProps {
     onClose: () => void;
 }
 
+import { calculateDiscountedPrice, applyCoupon } from "@/utils/pricing";
+import { useEffect } from "react";
+
+// ... constants ...
+
 export default function CheckoutDialog({ open, onClose }: CheckoutDialogProps) {
-    const { items, cartTotal, clearCart } = useCart();
+    const { items, clearCart } = useCart();
+    const [activeCampaigns, setActiveCampaigns] = useState<any[]>([]);
     const [loadingLocation, setLoadingLocation] = useState(false);
     const [formData, setFormData] = useState({
         name: "",
@@ -26,9 +33,73 @@ export default function CheckoutDialog({ open, onClose }: CheckoutDialogProps) {
         gps: "",
         notes: "",
     });
+    const [couponCode, setCouponCode] = useState("");
+    const [discount, setDiscount] = useState({ amount: 0, coupon: null as any });
+    const [validatingCoupon, setValidatingCoupon] = useState(false);
+
     const DELIVERY_CHARGE = 30;
     const [isSuccess, setIsSuccess] = useState(false);
     const [lastOrderId, setLastOrderId] = useState("");
+
+    // Fetch active campaigns for automatic application
+    useEffect(() => {
+        if (open) {
+            const fetchCampaigns = async () => {
+                const supabase = createClient();
+                const { data } = await supabase
+                    .from("campaigns")
+                    .select("*")
+                    .eq("is_active", true);
+                setActiveCampaigns(data || []);
+            };
+            fetchCampaigns();
+        }
+    }, [open]);
+
+    // Calculate dynamic totals based on current active campaigns
+    const totals = items.reduce((acc, item) => {
+        // Fallback to item.price if basePrice is missing (for old cart items)
+        const priceToUse = item.basePrice || item.price || "0";
+        const { original, discounted } = calculateDiscountedPrice(priceToUse, { id: item.menuItemId, category: item.category }, activeCampaigns);
+
+        const originalNum = typeof original === 'number' ? original : parseFloat(String(original).replace(/[^0-9.]/g, "")) || 0;
+        const discountedNum = typeof discounted === 'number' ? discounted : parseFloat(String(discounted).replace(/[^0-9.]/g, "")) || 0;
+
+        acc.subtotal += originalNum * item.quantity;
+        acc.discountedItemsTotal += discountedNum * item.quantity;
+        acc.autoDiscount += (originalNum - discountedNum) * item.quantity;
+
+        return acc;
+    }, { subtotal: 0, discountedItemsTotal: 0, autoDiscount: 0 });
+
+    const handleApplyCoupon = async () => {
+        if (!couponCode) return;
+        setValidatingCoupon(true);
+        const supabase = createClient();
+
+        const { data, error } = await supabase
+            .from("campaigns")
+            .select("*")
+            .eq("code", couponCode.toUpperCase())
+            .eq("is_active", true);
+
+        if (data && data.length > 0) {
+            // Apply coupon to the sum after automatic offers
+            const res = applyCoupon(totals.discountedItemsTotal, couponCode, data as any);
+            if (res.coupon) {
+                setDiscount({ amount: res.discountAmount, coupon: res.coupon });
+            } else {
+                alert(res.error);
+                setDiscount({ amount: 0, coupon: null });
+            }
+        } else {
+            alert("Invalid or expired coupon code.");
+            setDiscount({ amount: 0, coupon: null });
+        }
+        setValidatingCoupon(false);
+    };
+
+    const finalTotal = totals.discountedItemsTotal + DELIVERY_CHARGE - discount.amount;
 
     const handleGetLocation = () => {
         setLoadingLocation(true);
@@ -81,7 +152,7 @@ export default function CheckoutDialog({ open, onClose }: CheckoutDialogProps) {
         e.preventDefault();
         const supabase = createClient();
 
-        // 1. Create Order (Including Delivery Charge)
+        // 1. Create Order
         const { data: orderData, error: orderError } = await supabase
             .from("orders")
             .insert([{
@@ -89,7 +160,9 @@ export default function CheckoutDialog({ open, onClose }: CheckoutDialogProps) {
                 customer_phone: formData.phone,
                 address: formData.address,
                 gps_location: formData.gps,
-                total_amount: cartTotal + DELIVERY_CHARGE,
+                total_amount: finalTotal,
+                discount_amount: totals.autoDiscount + discount.amount,
+                coupon_code: discount.coupon?.code || null,
                 status: "Pending",
                 notes: formData.notes
             }])
@@ -101,16 +174,21 @@ export default function CheckoutDialog({ open, onClose }: CheckoutDialogProps) {
             alert("Failed to place order. Please try again.");
             return;
         }
+        // ... rest of item insertion logic
 
         // 2. Create Order Items
-        const orderItems = items.map(item => ({
-            order_id: orderData.id,
-            menu_item_name: item.name,
-            variant_name: item.variant,
-            price: parseInt(item.price.replace(/[^0-9]/g, "")),
-            quantity: item.quantity,
-            subtotal: parseInt(item.price.replace(/[^0-9]/g, "")) * item.quantity
-        }));
+        const orderItems = items.map(item => {
+            const priceStr = item.basePrice || item.price || "0";
+            const priceNum = parseInt(priceStr.replace(/[^0-9]/g, "")) || 0;
+            return {
+                order_id: orderData.id,
+                menu_item_name: item.name,
+                variant_name: item.variant,
+                price: priceNum,
+                quantity: item.quantity,
+                subtotal: priceNum * item.quantity
+            };
+        });
 
         const { error: itemsError } = await supabase
             .from("order_items")
@@ -201,7 +279,7 @@ export default function CheckoutDialog({ open, onClose }: CheckoutDialogProps) {
                         initial={{ opacity: 0, scale: 0.95, y: 20 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                        className="relative w-full h-full sm:h-auto sm:max-w-md bg-[var(--color-card-bg)] border-0 sm:border sm:border-white/10 sm:rounded-xl flex flex-col shadow-2xl overflow-hidden"
+                        className="relative w-full h-full sm:h-auto sm:max-w-xl bg-[var(--color-card-bg)] border-0 sm:border sm:border-white/10 sm:rounded-2xl flex flex-col shadow-2xl overflow-hidden sm:max-h-[92vh]"
                     >
                         {/* Header */}
                         <div className="sticky top-0 bg-[var(--color-card-bg)] border-b border-white/10 p-4 sm:p-6 flex items-center justify-between z-10 shrink-0">
@@ -213,7 +291,64 @@ export default function CheckoutDialog({ open, onClose }: CheckoutDialogProps) {
 
                         {/* Scrollable Form Content */}
                         <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
-                            <p className="text-gray-400 text-sm mb-6">Enter your details to complete your order.</p>
+                            {/* Detailed Bill Section */}
+                            <div className="mb-8 space-y-4">
+                                <div className="flex items-center gap-2 mb-4">
+                                    <div className="h-6 w-1 bg-[var(--color-pizza-red)] rounded-full" />
+                                    <h3 className="text-sm font-black uppercase tracking-[0.2em] text-white">Your Order Summary</h3>
+                                </div>
+                                <div className="space-y-3">
+                                    {items.map((item) => {
+                                        const { original, discounted } = calculateDiscountedPrice(
+                                            item.basePrice || item.price,
+                                            { id: item.menuItemId, category: item.category },
+                                            activeCampaigns
+                                        );
+                                        const origTotal = Number(original) * item.quantity;
+                                        const discTotal = Number(discounted) * item.quantity;
+                                        const hasItemDiscount = origTotal !== discTotal;
+
+                                        return (
+                                            <div key={item.id} className="group relative flex justify-between items-start bg-white/5 p-4 rounded-2xl border border-white/5 hover:border-white/10 transition-all">
+                                                <div className="flex flex-col gap-1">
+                                                    <span className="text-white font-bold text-base leading-tight">{item.name}</span>
+                                                    <div className="flex items-center gap-3">
+                                                        <span className="text-[10px] font-black bg-white/10 px-2 py-0.5 rounded text-gray-400 uppercase tracking-widest">
+                                                            Qty: {item.quantity}
+                                                        </span>
+                                                        {item.variant && (
+                                                            <span className="text-[10px] font-medium text-[var(--color-pizza-red)] uppercase tracking-wider">
+                                                                {item.variant}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <div className="text-right flex flex-col items-end">
+                                                    {hasItemDiscount && (
+                                                        <span className="text-[10px] text-gray-500 line-through decoration-[var(--color-pizza-red)]/50">
+                                                            ₹{origTotal}
+                                                        </span>
+                                                    )}
+                                                    <span className="text-white font-black text-lg tracking-tighter">
+                                                        ₹{discTotal}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                {items.length === 0 && (
+                                    <div className="text-center py-12 bg-white/5 rounded-3xl border border-dashed border-white/10">
+                                        <p className="text-gray-500 italic font-medium">Your delicious box is empty!</p>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="border-t border-white/10 pt-8 mb-6">
+                                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-gray-500 mb-6 flex items-center gap-2">
+                                    <User size={14} /> Customer Details
+                                </h3>
+                            </div>
 
                             <form id="checkout-form" onSubmit={handleSubmit} className="space-y-4 pb-4">
                                 <div className="space-y-2">
@@ -276,7 +411,84 @@ export default function CheckoutDialog({ open, onClose }: CheckoutDialogProps) {
                                         className="bg-white/5 border-white/20 text-white h-12 text-base"
                                     />
                                 </div>
+
+                                {/* Coupon Section */}
+                                <div className="pt-4 border-t border-white/10 space-y-2">
+                                    <label className="text-sm font-medium text-gray-300">Coupon Code</label>
+                                    <div className="flex gap-2">
+                                        <Input
+                                            placeholder="ENTER CODE"
+                                            value={couponCode}
+                                            onChange={(e) => setCouponCode(e.target.value)}
+                                            className="bg-white/5 border-white/20 text-white h-12 text-base font-mono uppercase"
+                                            disabled={!!discount.coupon}
+                                        />
+                                        <Button
+                                            type="button"
+                                            onClick={discount.coupon ? () => setDiscount({ amount: 0, coupon: null }) : handleApplyCoupon}
+                                            variant={discount.coupon ? "ghost" : "outline"}
+                                            disabled={validatingCoupon}
+                                            className={cn(
+                                                "h-12 px-6",
+                                                discount.coupon ? "text-red-400 hover:text-red-300" : "bg-white/10 text-white"
+                                            )}
+                                        >
+                                            {validatingCoupon ? <Loader2 className="animate-spin" /> : discount.coupon ? "Remove" : "Apply"}
+                                        </Button>
+                                    </div>
+                                    {discount.coupon && (
+                                        <p className="text-xs text-green-400 font-bold ml-1 flex items-center gap-1">
+                                            <CheckCircle2 size={12} /> Coupon "{discount.coupon.code}" Applied!
+                                        </p>
+                                    )}
+                                </div>
                             </form>
+
+                            {/* Order Summary / Bill Calculation */}
+                            <div className="mt-12 bg-black/40 rounded-3xl p-6 border border-white/10 space-y-4 relative overflow-hidden">
+                                {/* Subtle decorative pattern */}
+                                <div className="absolute top-0 right-0 w-32 h-32 bg-[var(--color-pizza-red)]/5 blur-3xl rounded-full -mr-16 -mt-16" />
+
+                                <div className="flex justify-between items-center text-sm">
+                                    <span className="text-gray-400 font-medium">Items Subtotal</span>
+                                    <span className="text-white font-bold">₹{totals.subtotal}</span>
+                                </div>
+                                <div className="flex justify-between items-center text-sm">
+                                    <span className="text-gray-400 font-medium">Delivery Charge</span>
+                                    <span className="text-white font-bold">₹{DELIVERY_CHARGE}</span>
+                                </div>
+
+                                {totals.autoDiscount > 0 && (
+                                    <div className="flex justify-between items-center text-sm">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                                            <span className="text-green-400 font-medium">Auto Offer applied</span>
+                                        </div>
+                                        <span className="text-green-400 font-bold">-₹{totals.autoDiscount}</span>
+                                    </div>
+                                )}
+
+                                {discount.amount > 0 && (
+                                    <div className="flex justify-between items-center text-sm">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                                            <span className="text-green-400 font-black">Coupon Savings</span>
+                                        </div>
+                                        <span className="text-green-400 font-black">-₹{discount.amount}</span>
+                                    </div>
+                                )}
+
+                                <div className="pt-5 border-t border-white/10 flex justify-between items-end">
+                                    <div className="flex flex-col">
+                                        <span className="text-xs font-black text-gray-500 uppercase tracking-[0.2em] mb-1">Grand Total</span>
+                                        <span className="text-base font-bold text-white uppercase tracking-wider">To Pay</span>
+                                    </div>
+                                    <div className="text-right">
+                                        <span className="text-4xl font-black text-[var(--color-pizza-red)] tracking-tighter drop-shadow-[0_0_20px_rgba(231,76,60,0.3)]">₹{finalTotal}</span>
+                                        <p className="text-[10px] text-gray-500 uppercase tracking-tighter mt-1 font-medium">Inclusive of all taxes</p>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
                         {/* Sticky Footer Button */}

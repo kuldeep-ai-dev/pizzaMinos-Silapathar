@@ -45,7 +45,35 @@ export default function AdminReservations() {
     };
 
     const updateStatus = async (id: string, status: string) => {
-        console.log(`Updating reservation ${id} to ${status}...`);
+        if (status === "Cancelled") {
+            if (!confirm("Are you sure you want to CANCEL and PERMANENTLY DELETE this reservation?")) return;
+
+            console.log("Attempting to delete reservation:", id);
+            const { data, error } = await supabase
+                .from("reservations")
+                .delete()
+                .eq("id", id)
+                .select();
+
+            console.log("Delete response:", { data, error });
+
+            if (!error) {
+                if (data && data.length > 0) {
+                    console.log("Record deleted successfully.");
+                    setReservations(prev => prev.filter(r => r.id !== id));
+                } else {
+                    console.warn("Delete call returned success but no data (ID mismatch or RLS).");
+                    alert("The record could not be deleted. This usually happens if your Database permissions (RLS) are not set to allow public deletions. Please run the provided SQL fix in your Supabase dashboard.");
+                    fetchReservations();
+                }
+            } else {
+                console.error("Delete failed:", error);
+                alert("Failed to delete reservation: " + error.message);
+                fetchReservations();
+            }
+            return;
+        }
+
         const { error } = await supabase
             .from("reservations")
             .update({ status })
@@ -58,6 +86,36 @@ export default function AdminReservations() {
         } else {
             console.error("Update error:", error);
             alert("Failed to update reservation: " + error.message);
+        }
+    };
+
+    const deleteReservation = async (id: string) => {
+        if (!confirm("Are you sure you want to delete this reservation?")) return;
+
+        const { error } = await supabase
+            .from("reservations")
+            .delete()
+            .eq("id", id);
+
+        if (!error) {
+            setReservations(prev => prev.filter(r => r.id !== id));
+        } else {
+            alert("Failed to delete reservation: " + error.message);
+        }
+    };
+
+    const clearAllReservations = async () => {
+        if (!confirm("WARNING: This will permanently delete ALL reservation data. Proceed?")) return;
+
+        const { error } = await supabase
+            .from("reservations")
+            .delete()
+            .neq("id", "00000000-0000-0000-0000-000000000000"); // Delete all
+
+        if (!error) {
+            setReservations([]);
+        } else {
+            alert("Failed to clear reservations: " + error.message);
         }
     };
 
@@ -82,14 +140,23 @@ export default function AdminReservations() {
                     <h1 className="text-3xl font-display font-bold text-white mb-2">Reservations</h1>
                     <p className="text-gray-400">Manage your table bookings and guest requests</p>
                 </div>
-                <div className="relative w-full md:w-64">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
-                    <Input
-                        placeholder="Search guests..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="pl-10 bg-white/5 border-white/10 text-white"
-                    />
+                <div className="flex items-center gap-4">
+                    <Button
+                        variant="outline"
+                        onClick={clearAllReservations}
+                        className="border-red-500/30 text-red-500/50 hover:bg-red-500/10 h-10 px-4 rounded-xl font-bold"
+                    >
+                        Clear All
+                    </Button>
+                    <div className="relative w-full md:w-64">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
+                        <Input
+                            placeholder="Search guests..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="pl-10 bg-white/5 border-white/10 text-white"
+                        />
+                    </div>
                 </div>
             </div>
 
@@ -161,22 +228,13 @@ export default function AdminReservations() {
                                                     </Button>
                                                 </>
                                             )}
-                                            {res.status === "Confirmed" && (
+                                            {(res.status === "Confirmed" || res.status === "Cancelled") && (
                                                 <Button
                                                     variant="outline"
                                                     onClick={() => updateStatus(res.id, "Cancelled")}
-                                                    className="border-red-500/30 text-red-500/50 hover:bg-red-500/10 h-10 px-4"
+                                                    className="border-red-500/30 text-red-500/50 hover:bg-red-500/10 h-10 px-4 rounded-xl"
                                                 >
-                                                    Cancel
-                                                </Button>
-                                            )}
-                                            {res.status === "Cancelled" && (
-                                                <Button
-                                                    variant="outline"
-                                                    onClick={() => updateStatus(res.id, "Pending")}
-                                                    className="border-white/10 text-gray-500 hover:bg-white/5 h-10 px-4"
-                                                >
-                                                    Restore
+                                                    Delete Record
                                                 </Button>
                                             )}
                                         </div>

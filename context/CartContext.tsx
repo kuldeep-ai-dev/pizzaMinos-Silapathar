@@ -6,7 +6,9 @@ export interface CartItem {
     id: string; // Unique ID (itemId + variantName)
     menuItemId: string;
     name: string;
-    price: string;
+    price: string; // This will be the current price (initially discounted from menu)
+    basePrice: string; // The original, non-discounted price
+    category: string;
     variant?: string;
     quantity: number;
 }

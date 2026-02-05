@@ -59,19 +59,12 @@ export default function AdminDashboard() {
     const [newOrderToast, setNewOrderToast] = useState<Order | null>(null);
 
     useEffect(() => {
-        fetchDashboardData();
-
-        // The global listener in AdminSidebar handles notifications and refreshes.
-        // We still subscribe here BUT ONLY to refresh the local stats, without sound/toasts
-        // to avoid duplicating logic from the sidebar.
-        // Actually, let's just keep it simple: fetch data once, and rely on the global 
-        // listener to trigger a refresh if we had a global refresh event, 
-        // but for now, we'll just keep a simple listener for stats only.
+        cleanupAndFetch();
 
         const orderSubscription = supabase
             .channel('dashboard-stats-refresh')
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, () => {
-                fetchDashboardData();
+                cleanupAndFetch();
             })
             .subscribe();
 
@@ -80,10 +73,32 @@ export default function AdminDashboard() {
         };
     }, []);
 
-    const fetchDashboardData = async () => {
+    const cleanupAndFetch = async () => {
         setLoading(true);
 
-        // Fetch orders with items for better analytics
+        // 1. Cleanup: Delete orders and items older than 24 hours
+        // We do this first so the dashboard stays fresh
+        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const { error: cleanupError } = await supabase
+            .from("orders")
+            .delete()
+            .lt("created_at", twentyFourHoursAgo);
+
+        if (cleanupError) console.error("Cleanup error:", cleanupError);
+
+        await fetchDashboardData();
+    };
+
+    const fetchDashboardData = async () => {
+        // Get current IST date string (YYYY-MM-DD)
+        const istDateStr = new Date().toLocaleDateString("en-GB", {
+            timeZone: "Asia/Kolkata",
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+        }).split('/').reverse().join('-'); // Convert DD/MM/YYYY to YYYY-MM-DD
+
+        // Fetch orders
         const { data: allOrders } = await supabase
             .from("orders")
             .select(`
@@ -93,28 +108,39 @@ export default function AdminDashboard() {
             .order("created_at", { ascending: false });
 
         if (allOrders) {
-            // Basic Stats
-            const totalRevenue = allOrders.reduce((sum, order) => sum + Number(order.total_amount), 0);
-            const pendingOrders = allOrders.filter(o => o.status === "Pending").length;
-            const today = new Date().toISOString().split('T')[0];
-            const todayOrders = allOrders.filter(o => o.created_at.startsWith(today)).length;
+            // Filter orders for "Today" based on IST
+            // The dashboard reset at 12:00 AM IST means we only show data from today's IST date
+            const todayOrdersList = allOrders.filter(o => {
+                const orderDateIST = new Date(o.created_at).toLocaleDateString("en-GB", {
+                    timeZone: "Asia/Kolkata",
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit'
+                }).split('/').reverse().join('-');
+                return orderDateIST === istDateStr;
+            });
 
-            // Fetch reservations count
+            // Basic Stats (Now using todayOrdersList for a clean daily reset)
+            const totalRevenue = todayOrdersList.reduce((sum, order) => sum + Number(order.total_amount), 0);
+            const pendingOrders = todayOrdersList.filter(o => o.status === "Pending").length;
+            const totalOrders = todayOrdersList.length;
+
+            // Reservations count (Total for now, or could also follow daily reset)
             const { count: resCount } = await supabase
                 .from("reservations")
                 .select("*", { count: 'exact', head: true });
 
             setStats({
-                totalOrders: allOrders.length,
+                totalOrders,
                 totalRevenue,
                 pendingOrders,
-                todayOrders,
+                todayOrders: totalOrders, // "Today" stat is same as "Total" in a daily reset view
                 totalReservations: resCount || 0,
             });
 
-            // Aggregate Top Items
+            // Aggregate Top Items (Daily reset)
             const itemCounts: Record<string, number> = {};
-            allOrders.forEach(order => {
+            todayOrdersList.forEach(order => {
                 order.order_items?.forEach((item: any) => {
                     itemCounts[item.menu_item_name] = (itemCounts[item.menu_item_name] || 0) + item.quantity;
                 });
@@ -125,10 +151,9 @@ export default function AdminDashboard() {
                 .slice(0, 5);
             setTopItems(sortedItems);
 
-            // Aggregate Hot Locations (Simple extraction from address)
+            // Aggregate Hot Locations (Daily reset)
             const locationCounts: Record<string, number> = {};
-            allOrders.forEach(order => {
-                // Try to get a broad area name (e.g., last part of address or before first comma)
+            todayOrdersList.forEach(order => {
                 const parts = order.address.split(',');
                 const area = parts.length > 1 ? parts[parts.length - 2].trim() : order.address.trim();
                 locationCounts[area] = (locationCounts[area] || 0) + 1;
@@ -139,7 +164,7 @@ export default function AdminDashboard() {
                 .slice(0, 5);
             setHotLocations(sortedLocations);
 
-            // Get recent 5 orders
+            // Recent 5 orders (Show all remaining <24h orders so screen isn't empty after 12 AM)
             setRecentOrders(allOrders.slice(0, 5));
         }
 

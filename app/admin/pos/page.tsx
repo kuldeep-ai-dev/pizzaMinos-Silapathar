@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import AdminSidebar from "@/components/admin/AdminSidebar";
+import { calculateDiscountedPrice } from "@/utils/pricing";
 
 interface MenuItem {
     id: string;
@@ -43,18 +44,24 @@ export default function AdminPOSPage() {
     const [orderNotes, setOrderNotes] = useState("");
     const [priority, setPriority] = useState<"Normal" | "Rush">("Normal");
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [activeCampaigns, setActiveCampaigns] = useState<any[]>([]);
+    const [categories, setCategories] = useState<any[]>([]);
 
     const supabase = createClient();
 
     useEffect(() => {
         const fetchData = async () => {
-            const [menuRes, tablesRes] = await Promise.all([
+            const [menuRes, tablesRes, categoriesRes, campaignsRes] = await Promise.all([
                 supabase.from("menu_items").select("*, variants:menu_variants(*)"),
-                supabase.from("res_tables").select("*").eq("status", "Available")
+                supabase.from("res_tables").select("*").eq("status", "Available"),
+                supabase.from("menu_categories").select("*").order("name"),
+                supabase.from("campaigns").select("*").eq("is_active", true)
             ]);
 
             if (menuRes.data) setMenuItems(menuRes.data);
             if (tablesRes.data) setTables(tablesRes.data);
+            if (categoriesRes.data) setCategories(categoriesRes.data);
+            if (campaignsRes.data) setActiveCampaigns(campaignsRes.data);
             setLoading(false);
         };
         fetchData();
@@ -71,7 +78,9 @@ export default function AdminPOSPage() {
     const addToCart = (item: MenuItem, variant?: any) => {
         const itemId = variant ? `${item.id}-${variant.name}` : item.id;
         const priceStr = variant ? variant.price : item.price;
-        const price = parseInt(priceStr.replace(/[^0-9]/g, "")) || 0;
+
+        // Calculate discounted price
+        const { discounted } = calculateDiscountedPrice(priceStr, { id: item.id, category: item.category }, activeCampaigns);
 
         setCart(prev => {
             const existing = prev.find(i => i.id === itemId);
@@ -81,7 +90,7 @@ export default function AdminPOSPage() {
             return [...prev, {
                 id: itemId,
                 name: item.name,
-                price: price,
+                price: discounted as number,
                 quantity: 1,
                 variant: variant?.name
             }];
@@ -160,69 +169,116 @@ export default function AdminPOSPage() {
             <main className="flex-1 flex gap-0">
                 {/* Left: Product Selection */}
                 <div className="flex-1 flex flex-col p-6 overflow-hidden">
-                    <header className="mb-6 flex justify-between items-center bg-white/5 p-4 rounded-xl border border-white/10">
-                        <div className="flex items-center gap-4 flex-1 max-w-xl">
+                    <header className="mb-6 flex flex-col gap-4 bg-white/5 p-4 rounded-xl border border-white/10">
+                        <div className="flex items-center gap-4">
                             <div className="relative flex-1">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
                                 <Input
-                                    placeholder="Search items..."
+                                    placeholder="Search recipes..."
                                     className="pl-10 bg-black/40 border-white/10 text-white"
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
                                 />
                             </div>
-                            <div className="flex gap-2">
-                                {["All", "Veg Pizza", "Chicken Pizza", "Burgers", "Drinks", "Sides"].map(cat => (
-                                    <button
-                                        key={cat}
-                                        onClick={() => setActiveCategory(cat)}
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${activeCategory === cat ? 'bg-[var(--color-pizza-red)] text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'
-                                            }`}
-                                    >
-                                        {cat}
-                                    </button>
-                                ))}
-                            </div>
+                        </div>
+                        <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar no-scrollbar">
+                            <button
+                                onClick={() => setActiveCategory("All")}
+                                className={cn(
+                                    "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap border",
+                                    activeCategory === "All" ? 'bg-[var(--color-pizza-red)] text-white border-[var(--color-pizza-red)]' : 'bg-white/5 text-gray-400 border-white/5 hover:bg-white/10'
+                                )}
+                            >
+                                All Items
+                            </button>
+                            {categories.map(cat => (
+                                <button
+                                    key={cat.id}
+                                    onClick={() => setActiveCategory(cat.name)}
+                                    className={cn(
+                                        "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap border",
+                                        activeCategory === cat.name ? 'bg-[var(--color-pizza-red)] text-white border-[var(--color-pizza-red)]' : 'bg-white/5 text-gray-500 border-white/5 hover:bg-white/10'
+                                    )}
+                                >
+                                    {cat.name}
+                                </button>
+                            ))}
                         </div>
                     </header>
 
-                    <div className="flex-1 overflow-y-auto grid grid-cols-2 lg:grid-cols-4 gap-4 pr-2 custom-scrollbar">
-                        {filteredItems.map(item => (
-                            <motion.div
-                                key={item.id}
-                                whileTap={{ scale: 0.95 }}
-                                className="group bg-white/5 border border-white/5 rounded-xl p-3 cursor-pointer hover:border-[var(--color-pizza-red)]/30 transition-all flex flex-col h-fit"
-                            >
-                                <div className="aspect-square bg-black/40 rounded-lg mb-3 flex items-center justify-center text-gray-700">
-                                    {item.category.includes("Pizza") ? <Pizza size={40} /> : <Sandwich size={40} />}
-                                </div>
-                                <h3 className="text-sm font-bold text-white mb-1 line-clamp-1">{item.name}</h3>
-                                {item.variants && item.variants.length > 0 ? (
-                                    <div className="flex flex-wrap gap-1">
-                                        {item.variants.map(v => (
-                                            <button
-                                                key={v.id}
-                                                onClick={() => addToCart(item, v)}
-                                                className="px-2 py-1 bg-white/5 hover:bg-[var(--color-pizza-red)] text-[10px] rounded text-gray-400 hover:text-white transition-colors"
-                                            >
-                                                {v.name.charAt(0)}: ₹{v.price}
-                                            </button>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-[var(--color-pizza-red)] font-bold">₹{item.price}</span>
-                                        <Button
-                                            size="sm"
-                                            onClick={() => addToCart(item)}
-                                            className="h-8 w-8 p-0 bg-white/5 rounded-lg"
-                                        >
-                                            <Plus size={14} />
-                                        </Button>
-                                    </div>
-                                )}
-                            </motion.div>
-                        ))}
+                    <div className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar">
+                        <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-10 pb-20">
+                            {filteredItems.map(item => {
+                                const { original, discounted, appliedCampaign } = calculateDiscountedPrice(item.price, { id: item.id, category: item.category }, activeCampaigns);
+                                const hasDiscount = original !== discounted;
+
+                                return (
+                                    <motion.div
+                                        key={item.id}
+                                        whileTap={{ scale: 0.95 }}
+                                        className="group bg-white/5 border border-white/10 rounded-2xl overflow-hidden cursor-pointer hover:border-[var(--color-pizza-red)]/50 transition-all duration-300 flex flex-col h-fit shadow-xl shadow-black/40"
+                                    >
+                                        <div className="aspect-[4/3] relative bg-black/40 overflow-hidden">
+                                            {(item as any).image_url ? (
+                                                <img
+                                                    src={(item as any).image_url}
+                                                    alt={item.name}
+                                                    className="w-full h-full object-cover opacity-80 group-hover:opacity-100 group-hover:scale-110 transition-all duration-500"
+                                                />
+                                            ) : (
+                                                <div className="w-full h-full flex items-center justify-center text-white/5">
+                                                    {item.category.includes("Pizza") ? <Pizza size={40} /> : <Sandwich size={40} />}
+                                                </div>
+                                            )}
+                                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60" />
+                                            {appliedCampaign && (
+                                                <div className="absolute top-2 left-2 px-2 py-0.5 bg-green-500 text-white text-[8px] font-black rounded-full uppercase tracking-widest animate-pulse border border-green-400">
+                                                    Offer
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className="p-3">
+                                            <h3 className="text-[11px] font-black uppercase tracking-tight text-white mb-2 line-clamp-1">{item.name}</h3>
+
+                                            {item.variants && item.variants.length > 0 ? (
+                                                <div className="grid grid-cols-3 gap-1">
+                                                    {item.variants.map(v => (
+                                                        <button
+                                                            key={v.id}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                addToCart(item, v);
+                                                            }}
+                                                            className="py-1 bg-white/5 hover:bg-[var(--color-pizza-red)] text-[9px] font-black rounded-lg text-gray-400 hover:text-white transition-all border border-white/5"
+                                                        >
+                                                            {v.name.charAt(0)}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex flex-col">
+                                                        {hasDiscount && <span className="text-[8px] text-gray-500 line-through">₹{original}</span>}
+                                                        <span className="text-[var(--color-pizza-red)] font-black text-xs">₹{discounted}</span>
+                                                    </div>
+                                                    <Button
+                                                        size="sm"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            addToCart(item);
+                                                        }}
+                                                        className="h-7 w-7 p-0 bg-white/5 hover:bg-[var(--color-pizza-red)] rounded-lg transition-colors border border-white/10"
+                                                    >
+                                                        <Plus size={14} />
+                                                    </Button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </motion.div>
+                                );
+                            })}
+                        </div>
                     </div>
                 </div>
 

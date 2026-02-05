@@ -246,8 +246,8 @@ export default function DineInPage() {
             </header>
 
             {/* Menu Section */}
-            <div className="container mx-auto pt-6 px-4">
-                <div className="mb-10 text-center">
+            <div className="container mx-auto pt-6 px-2 md:px-4">
+                <div className="mb-8 text-center px-4">
                     <motion.div
                         initial={{ scale: 0.9, opacity: 0 }}
                         animate={{ scale: 1, opacity: 1 }}
@@ -255,8 +255,8 @@ export default function DineInPage() {
                     >
                         Premium Dine-in Experience
                     </motion.div>
-                    <h2 className="text-4xl font-display font-bold text-white tracking-tighter">PizzaMinos <span className="text-[var(--color-pizza-red)]">Hub</span></h2>
-                    <p className="text-gray-400 text-sm mt-2 max-w-xs mx-auto italic">Pick your favorites from our premium selection downstairs.</p>
+                    <h2 className="text-3xl md:text-4xl font-display font-bold text-white tracking-tighter">PizzaMinos <span className="text-[var(--color-pizza-red)]">Hub</span></h2>
+                    <p className="text-gray-400 text-xs mt-2 max-w-xs mx-auto italic">Pick your favorites from our premium selection downstairs.</p>
                 </div>
 
                 <Menu />

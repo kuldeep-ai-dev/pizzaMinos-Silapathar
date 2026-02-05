@@ -97,7 +97,19 @@ export default function OrdersPage() {
     }, []);
 
     const updateStatus = async (id: string, newStatus: string) => {
-        await supabase.from("orders").update({ status: newStatus }).eq("id", id);
+        if (newStatus === "Cancelled") {
+            if (!confirm("Are you sure you want to CANCEL and PERMANENTLY DELETE this order? This action cannot be undone.")) return;
+
+            // Delete order items first (though Supabase might have cascade, let's be safe or just delete the order)
+            // If there's a foreign key with ON DELETE CASCADE, deleting the order is enough.
+            // Let's assume there is or just delete order.
+            const { error } = await supabase.from("orders").delete().eq("id", id);
+            if (error) {
+                alert("Failed to delete order: " + error.message);
+            }
+        } else {
+            await supabase.from("orders").update({ status: newStatus }).eq("id", id);
+        }
         fetchOrders(true);
     };
 
@@ -262,21 +274,40 @@ export default function OrdersPage() {
                                                 {(activeTab === "Delivery"
                                                     ? ["Pending", "Preparing", "Out for Delivery", "Delivered", "Cancelled"]
                                                     : ["Pending", "Preparing", "Served", "Payment Completed", "Cancelled"]
-                                                ).map((status) => (
-                                                    <button
-                                                        key={status}
-                                                        onClick={() => updateStatus(order.id, status)}
-                                                        className={`px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-tighter transition-all ${order.status === status ? getStatusColor(status) : "bg-white/5 text-gray-500 hover:bg-white/10"}`}
-                                                    >
-                                                        {status}
-                                                    </button>
-                                                ))}
+                                                ).map((status) => {
+                                                    // Business Rule: Hide "Cancelled" once delivered or payment completed
+                                                    const isFinalized = order.status === "Delivered" || order.status === "Payment Completed";
+                                                    if (status === "Cancelled" && isFinalized) return null;
+
+                                                    return (
+                                                        <button
+                                                            key={status}
+                                                            onClick={() => updateStatus(order.id, status)}
+                                                            className={`px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-tighter transition-all ${order.status === status ? getStatusColor(status) : "bg-white/5 text-gray-500 hover:bg-white/10"}`}
+                                                        >
+                                                            {status}
+                                                        </button>
+                                                    );
+                                                })}
                                             </div>
-                                            <Link href={`/admin/invoice/${order.id}`} target="_blank" className="w-full sm:w-auto">
-                                                <Button variant="outline" size="sm" className="w-full sm:w-auto h-10 gap-2 border-white/10 text-gray-400 hover:text-white hover:bg-white/5 group">
-                                                    <Printer size={16} className="group-hover:scale-110 transition-transform" /> Print Bill
-                                                </Button>
-                                            </Link>
+                                            {(() => {
+                                                // Business Rule: Print Bill accessible only when:
+                                                // 1. Online: Out for Delivery or Delivered
+                                                // 2. Dine-in/POS: Payment Completed
+                                                const canPrint = activeTab === "Delivery"
+                                                    ? (order.status === "Out for Delivery" || order.status === "Delivered")
+                                                    : order.status === "Payment Completed";
+
+                                                if (!canPrint) return null;
+
+                                                return (
+                                                    <Link href={`/admin/invoice/${order.id}`} target="_blank" className="w-full sm:w-auto">
+                                                        <Button variant="outline" size="sm" className="w-full sm:w-auto h-10 gap-2 border-white/10 text-gray-400 hover:text-white hover:bg-white/5 group">
+                                                            <Printer size={16} className="group-hover:scale-110 transition-transform" /> Print Bill
+                                                        </Button>
+                                                    </Link>
+                                                );
+                                            })()}
                                         </div>
                                     </CardContent>
                                 </Card>
