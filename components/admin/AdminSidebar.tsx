@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, ShoppingBag, Menu as MenuIcon, X, Calendar, ClipboardList, Volume2, VolumeX, Radio, LogOut } from "lucide-react";
+import { LayoutDashboard, ShoppingBag, Menu as MenuIcon, X, Calendar, ClipboardList, Volume2, VolumeX, Radio, LogOut, ChefHat } from "lucide-react";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/utils/supabase/client";
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 const navItems = [
     { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
     { label: "POS / Counter", icon: ShoppingBag, href: "/admin/pos" },
+    { label: "Kitchen (KDS)", icon: ChefHat, href: "/admin/kds" },
     { label: "Orders", icon: ClipboardList, href: "/admin/orders" },
     { label: "Tables / QR", icon: LayoutDashboard, href: "/admin/tables" },
     { label: "Reservations", icon: Calendar, href: "/admin/reservations" },

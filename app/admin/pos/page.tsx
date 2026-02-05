@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import AdminSidebar from "@/components/admin/AdminSidebar";
 
 interface MenuItem {
@@ -39,6 +40,8 @@ export default function AdminPOSPage() {
     const [selectedTable, setSelectedTable] = useState<string>("Walk-in");
     const [customerName, setCustomerName] = useState("");
     const [customerPhone, setCustomerPhone] = useState("");
+    const [orderNotes, setOrderNotes] = useState("");
+    const [priority, setPriority] = useState<"Normal" | "Rush">("Normal");
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const supabase = createClient();
@@ -113,7 +116,9 @@ export default function AdminPOSPage() {
                 total_amount: cartTotal,
                 status: "Pending",
                 order_type: orderType,
-                table_id: tableId
+                table_id: tableId,
+                notes: orderNotes,
+                priority: priority
             }])
             .select()
             .single();
@@ -139,6 +144,8 @@ export default function AdminPOSPage() {
         setCart([]);
         setCustomerName("");
         setCustomerPhone("");
+        setOrderNotes("");
+        setPriority("Normal");
         setSelectedTable("Walk-in");
         setIsSubmitting(false);
 
@@ -227,6 +234,36 @@ export default function AdminPOSPage() {
                         </h2>
 
                         <div className="space-y-4">
+                            <div className="space-y-2">
+                                <label className="text-[10px] uppercase text-gray-500 font-bold tracking-widest">Order Notes</label>
+                                <Input
+                                    placeholder="Extra spicy, no onions, etc."
+                                    className="h-10 text-xs bg-white/5 border-white/10"
+                                    value={orderNotes}
+                                    onChange={(e) => setOrderNotes(e.target.value)}
+                                />
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-[10px] uppercase text-gray-500 font-bold tracking-widest">Priority</label>
+                                <div className="flex gap-2">
+                                    {["Normal", "Rush"].map((p) => (
+                                        <button
+                                            key={p}
+                                            onClick={() => setPriority(p as any)}
+                                            className={cn(
+                                                "flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase border transition-all",
+                                                priority === p
+                                                    ? p === "Rush" ? "bg-red-600 border-red-600 text-white" : "bg-white text-black border-white"
+                                                    : "bg-white/5 text-gray-500 border-white/5"
+                                            )}
+                                        >
+                                            {p}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
                             <div className="space-y-2">
                                 <label className="text-[10px] uppercase text-gray-500 font-bold tracking-widest">Customer Name</label>
                                 <div className="relative">

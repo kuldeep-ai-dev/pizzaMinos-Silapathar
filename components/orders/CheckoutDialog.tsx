@@ -24,6 +24,7 @@ export default function CheckoutDialog({ open, onClose }: CheckoutDialogProps) {
         phone: "",
         address: "",
         gps: "",
+        notes: "",
     });
     const DELIVERY_CHARGE = 30;
     const [isSuccess, setIsSuccess] = useState(false);
@@ -89,7 +90,8 @@ export default function CheckoutDialog({ open, onClose }: CheckoutDialogProps) {
                 address: formData.address,
                 gps_location: formData.gps,
                 total_amount: cartTotal + DELIVERY_CHARGE,
-                status: "Pending"
+                status: "Pending",
+                notes: formData.notes
             }])
             .select()
             .single();
@@ -263,6 +265,16 @@ export default function CheckoutDialog({ open, onClose }: CheckoutDialogProps) {
                                             <MapPin size={12} /> GPS Location Attached
                                         </p>
                                     )}
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-gray-300">Cooking Notes (Optional)</label>
+                                    <Input
+                                        placeholder="No onion, extra spicy, etc."
+                                        value={formData.notes}
+                                        onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                                        className="bg-white/5 border-white/20 text-white h-12 text-base"
+                                    />
                                 </div>
                             </form>
                         </div>

@@ -9,6 +9,7 @@ import { Loader2, RefreshCw, Printer, Package } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import CopyButton from "@/components/admin/CopyButton";
+import { cn } from "@/lib/utils";
 
 interface OrderItem {
     id: string;
@@ -28,6 +29,8 @@ interface Order {
     status: string;
     order_type: string;
     table_id: string | null;
+    notes?: string;
+    priority?: string;
     created_at: string;
     items?: OrderItem[];
 }
@@ -214,6 +217,23 @@ export default function OrdersPage() {
                                                         ))}
                                                     </div>
                                                 </div>
+
+                                                {(order.notes || order.priority === "Rush") && (
+                                                    <div className={cn(
+                                                        "p-4 rounded-xl border",
+                                                        order.priority === "Rush" ? "bg-red-500/10 border-red-500/20" : "bg-yellow-500/5 border-yellow-500/10"
+                                                    )}>
+                                                        <div className="flex items-center justify-between mb-2">
+                                                            <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest">Kitchen Notes</p>
+                                                            {order.priority === "Rush" && (
+                                                                <Badge className="bg-red-600 text-[8px] animate-pulse">RUSH ORDER</Badge>
+                                                            )}
+                                                        </div>
+                                                        <p className="text-sm text-white italic">
+                                                            {order.notes || "No special instructions"}
+                                                        </p>
+                                                    </div>
+                                                )}
                                             </div>
 
                                             <div className="p-4 bg-black/40 rounded-xl border border-white/5 h-fit">
