@@ -3,7 +3,7 @@
 import AdminSidebar from "@/components/admin/AdminSidebar";
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import AdminSplashProvider from "@/components/admin/AdminSplashProvider";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
     const router = useRouter();
@@ -22,26 +22,19 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         }
     }, [pathname, router]);
 
-    // Don't show anything (except maybe a loader) until we check auth
-    if (isAuthenticated === null) {
-        return (
-            <div className="min-h-screen bg-[var(--color-dark-bg)] flex items-center justify-center">
-                <Loader2 className="animate-spin text-[var(--color-pizza-red)] w-12 h-12" />
-            </div>
-        );
-    }
-
-    // Don't show sidebar on login page
-    if (pathname === "/admin/login") {
-        return <div className="min-h-screen bg-[var(--color-dark-bg)]">{children}</div>;
-    }
-
-    return (
+    // Content logic
+    const content = (
         <div className="min-h-screen bg-[var(--color-dark-bg)] text-white">
-            <AdminSidebar />
-            <main className="lg:ml-72 p-4 sm:p-8">
+            {pathname !== "/admin/login" && <AdminSidebar />}
+            <main className={pathname !== "/admin/login" ? "lg:ml-72 p-4 sm:p-8" : ""}>
                 {children}
             </main>
         </div>
+    );
+
+    return (
+        <AdminSplashProvider>
+            {content}
+        </AdminSplashProvider>
     );
 }

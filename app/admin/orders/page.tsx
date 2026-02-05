@@ -99,16 +99,21 @@ export default function OrdersPage() {
     const updateStatus = async (id: string, newStatus: string) => {
         if (newStatus === "Cancelled") {
             if (!confirm("Are you sure you want to CANCEL and PERMANENTLY DELETE this order? This action cannot be undone.")) return;
-
-            // Delete order items first (though Supabase might have cascade, let's be safe or just delete the order)
-            // If there's a foreign key with ON DELETE CASCADE, deleting the order is enough.
-            // Let's assume there is or just delete order.
             const { error } = await supabase.from("orders").delete().eq("id", id);
             if (error) {
                 alert("Failed to delete order: " + error.message);
             }
         } else {
-            await supabase.from("orders").update({ status: newStatus }).eq("id", id);
+            const updateData: any = { status: newStatus };
+
+            // Kitchen Performance Timestamps
+            if (newStatus === "Preparing") {
+                updateData.preparing_at = new Date().toISOString();
+            } else if (["Served", "Delivered", "Payment Completed"].includes(newStatus)) {
+                updateData.completed_at = new Date().toISOString();
+            }
+
+            await supabase.from("orders").update(updateData).eq("id", id);
         }
         fetchOrders(true);
     };

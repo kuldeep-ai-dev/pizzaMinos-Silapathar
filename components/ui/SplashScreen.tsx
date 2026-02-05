@@ -4,16 +4,23 @@ import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
 import { useEffect, useState } from "react";
 
-const SplashScreen = ({ finishLoading }: { finishLoading: () => void }) => {
+const SplashScreen = ({ finishLoading, isDataReady }: { finishLoading: () => void; isDataReady: boolean }) => {
     const [isMounted, setIsMounted] = useState(false);
+    const [minTimeElapsed, setMinTimeElapsed] = useState(false);
 
     useEffect(() => {
         setIsMounted(true);
         const timeout = setTimeout(() => {
-            finishLoading();
-        }, 3000); // Animation duration: 3 seconds
+            setMinTimeElapsed(true);
+        }, 2500); // Animation duration: reduced to 2.5 seconds for snappier feel
         return () => clearTimeout(timeout);
-    }, [finishLoading]);
+    }, []);
+
+    useEffect(() => {
+        if (minTimeElapsed && isDataReady) {
+            finishLoading();
+        }
+    }, [minTimeElapsed, isDataReady, finishLoading]);
 
     if (!isMounted) return null;
 

@@ -151,7 +151,7 @@ import { calculateDiscountedPrice } from "@/utils/pricing";
 
 // ... existing types ...
 
-const Menu = () => {
+const Menu = ({ compact = false }: { compact?: boolean }) => {
     const [activeCategory, setActiveCategory] = useState<string>("");
     const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
     const [items, setItems] = useState<MenuItem[]>([]);
@@ -191,8 +191,19 @@ const Menu = () => {
                 }));
 
                 setItems(mergedItems);
+
+                // Signal that data is ready for the splash screen
+                if (typeof window !== "undefined") {
+                    (window as any).__MENU_DATA_READY__ = true;
+                    window.dispatchEvent(new Event("menuDataReady"));
+                }
             } catch (error) {
                 console.error("Error fetching menu data:", error);
+                // Even on error, we should probably signal so the splash doesn't hang
+                if (typeof window !== "undefined") {
+                    (window as any).__MENU_DATA_READY__ = true;
+                    window.dispatchEvent(new Event("menuDataReady"));
+                }
             } finally {
                 setLoading(false);
             }
@@ -204,7 +215,10 @@ const Menu = () => {
     const filteredItems = items.filter((item) => item.category === activeCategory);
 
     return (
-        <section id="menu" className="py-24 bg-[var(--color-dark-bg)] relative min-h-screen">
+        <section id="menu" className={cn(
+            "bg-[var(--color-dark-bg)] relative",
+            compact ? "py-8" : "py-24 min-h-screen"
+        )}>
             {/* Background Accents */}
             <div className="absolute top-0 left-0 w-full h-64 bg-gradient-to-b from-[var(--color-pizza-red)]/5 to-transparent pointer-events-none" />
 
@@ -265,10 +279,7 @@ const Menu = () => {
                         ))}
                     </div>
                 ) : (
-                    <motion.div
-                        layout
-                        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8"
-                    >
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
                         <AnimatePresence mode="popLayout">
                             {filteredItems.length === 0 ? (
                                 <div className="col-span-full text-center py-20 flex flex-col items-center gap-4 opacity-30">
@@ -279,18 +290,17 @@ const Menu = () => {
                                 filteredItems.map((item) => (
                                     <motion.div
                                         key={item.id}
-                                        layout
-                                        initial={{ opacity: 0, scale: 0.9 }}
-                                        animate={{ opacity: 1, scale: 1 }}
-                                        exit={{ opacity: 0, scale: 0.9 }}
-                                        transition={{ duration: 0.4 }}
+                                        initial={{ opacity: 0, y: 10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, scale: 0.95 }}
+                                        transition={{ duration: 0.3 }}
                                     >
                                         <MenuItemCard item={item as any} activeCampaigns={activeCampaigns} />
                                     </motion.div>
                                 ))
                             )}
                         </AnimatePresence>
-                    </motion.div>
+                    </div>
                 )}
             </div>
         </section>

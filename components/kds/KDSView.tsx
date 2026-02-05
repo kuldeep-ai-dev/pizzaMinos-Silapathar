@@ -88,25 +88,52 @@ export default function KDSView() {
     const toggleItemStatus = async (orderId: string, itemId: string, currentStatus: string) => {
         const nextStatus = currentStatus === "Prepared" ? "Pending" : "Prepared";
 
+        // If starting the first item, mark order as "Preparing" and set preparing_at
+        const order = orders.find(o => o.id === orderId);
+        if (nextStatus === "Prepared" && order?.status === "Pending") {
+            await supabase
+                .from("orders")
+                .update({
+                    status: "Preparing",
+                    preparing_at: new Date().toISOString()
+                })
+                .eq("id", orderId);
+        }
+
         await supabase
             .from("order_items")
             .update({ preparation_status: nextStatus })
             .eq("id", itemId);
 
+        // Check if ALL items are now prepared to set ready_at
+        const updatedItems = order?.items?.map(i => i.id === itemId ? { ...i, preparation_status: nextStatus } : i);
+        if (updatedItems?.every(i => i.preparation_status === "Prepared")) {
+            await supabase
+                .from("orders")
+                .update({ ready_at: new Date().toISOString() })
+                .eq("id", orderId);
+        }
+
         fetchKDSOrders();
     };
 
     const markOrderReady = async (orderId: string, type: string) => {
-        const finalStatus = type === "Dine-in" ? "Served" : type === "Delivery" ? "Preparing" : "Served";
+        const isDineIn = type === "Dine-in" || type === "Counter";
+        const finalStatus = isDineIn ? "Served" : "Out for Delivery";
+
+        const updateData: any = {
+            status: finalStatus,
+            ready_at: new Date().toISOString() // Ensure ready_at is set if not already
+        };
+
+        if (finalStatus === "Served") {
+            updateData.completed_at = new Date().toISOString();
+        }
 
         await supabase
             .from("orders")
-            .update({ status: finalStatus === "Preparing" ? "Preparing" : "Served" })
+            .update(updateData)
             .eq("id", orderId);
-
-        if (finalStatus === "Preparing") {
-            await supabase.from("orders").update({ status: "Out for Delivery" }).eq("id", orderId);
-        }
 
         fetchKDSOrders();
     };

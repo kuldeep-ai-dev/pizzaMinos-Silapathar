@@ -6,10 +6,11 @@ import { motion, AnimatePresence } from "framer-motion";
 import StatsCard from "@/components/admin/StatsCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ShoppingBag, DollarSign, Clock, TrendingUp, MapPin, Target, PieChart, Map as MapIcon, Calendar, Bell, Info } from "lucide-react";
+import { ShoppingBag, DollarSign, Clock, TrendingUp, MapPin, Target, ChartPie, Map as MapIcon, Calendar, Bell, Info, Users, BarChart, Utensils, Timer, AlertCircle, CheckCircle2, ChefHat } from "lucide-react";
 import Link from "next/link";
 import CopyButton from "@/components/admin/CopyButton";
 import dynamic from "next/dynamic";
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, PieChart as RePieChart, Pie, Cell } from 'recharts';
 
 const OrderMap = dynamic(() => import("@/components/admin/OrderMap"), {
     ssr: false,
@@ -43,6 +44,35 @@ interface Location {
     count: number;
 }
 
+interface OrderTypeStat {
+    name: string;
+    value: number;
+}
+
+interface HourlyRevenue {
+    hour: string;
+    amount: number;
+}
+
+interface TableSummary {
+    available: number;
+    occupied: number;
+    reserved: number;
+}
+
+interface CustomerFreq {
+    phone: string;
+    name: string;
+    count: number;
+}
+
+interface KitchenStats {
+    avgPrepTime: number;
+    avgCompletionTime: number;
+    delayedOrders: number;
+    peakLoadHour: string;
+}
+
 export default function AdminDashboard() {
     const supabase = createClient();
     const [stats, setStats] = useState<Stats>({
@@ -55,6 +85,17 @@ export default function AdminDashboard() {
     const [recentOrders, setRecentOrders] = useState<Order[]>([]);
     const [topItems, setTopItems] = useState<TopItem[]>([]);
     const [hotLocations, setHotLocations] = useState<Location[]>([]);
+    const [orderTypes, setOrderTypes] = useState<OrderTypeStat[]>([]);
+    const [hourlyRevenue, setHourlyRevenue] = useState<HourlyRevenue[]>([]);
+    const [tableSummary, setTableSummary] = useState<TableSummary>({ available: 0, occupied: 0, reserved: 0 });
+    const [customerFreqs, setCustomerFreqs] = useState<CustomerFreq[]>([]);
+    const [aov, setAov] = useState(0);
+    const [kitchenStats, setKitchenStats] = useState<KitchenStats>({
+        avgPrepTime: 0,
+        avgCompletionTime: 0,
+        delayedOrders: 0,
+        peakLoadHour: "00:00"
+    });
     const [loading, setLoading] = useState(true);
     const [newOrderToast, setNewOrderToast] = useState<Order | null>(null);
 
@@ -76,29 +117,23 @@ export default function AdminDashboard() {
     const cleanupAndFetch = async () => {
         setLoading(true);
 
-        // 1. Cleanup: Delete orders and items older than 24 hours
-        // We do this first so the dashboard stays fresh
         const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-        const { error: cleanupError } = await supabase
+        await supabase
             .from("orders")
             .delete()
             .lt("created_at", twentyFourHoursAgo);
-
-        if (cleanupError) console.error("Cleanup error:", cleanupError);
 
         await fetchDashboardData();
     };
 
     const fetchDashboardData = async () => {
-        // Get current IST date string (YYYY-MM-DD)
         const istDateStr = new Date().toLocaleDateString("en-GB", {
             timeZone: "Asia/Kolkata",
             year: 'numeric',
             month: '2-digit',
             day: '2-digit'
-        }).split('/').reverse().join('-'); // Convert DD/MM/YYYY to YYYY-MM-DD
+        }).split('/').reverse().join('-');
 
-        // Fetch orders
         const { data: allOrders } = await supabase
             .from("orders")
             .select(`
@@ -107,9 +142,11 @@ export default function AdminDashboard() {
             `)
             .order("created_at", { ascending: false });
 
+        const { data: tables } = await supabase
+            .from("res_tables")
+            .select("*");
+
         if (allOrders) {
-            // Filter orders for "Today" based on IST
-            // The dashboard reset at 12:00 AM IST means we only show data from today's IST date
             const todayOrdersList = allOrders.filter(o => {
                 const orderDateIST = new Date(o.created_at).toLocaleDateString("en-GB", {
                     timeZone: "Asia/Kolkata",
@@ -120,52 +157,116 @@ export default function AdminDashboard() {
                 return orderDateIST === istDateStr;
             });
 
-            // Basic Stats (Now using todayOrdersList for a clean daily reset)
             const totalRevenue = todayOrdersList.reduce((sum, order) => sum + Number(order.total_amount), 0);
-            const pendingOrders = todayOrdersList.filter(o => o.status === "Pending").length;
             const totalOrders = todayOrdersList.length;
-
-            // Reservations count (Total for now, or could also follow daily reset)
-            const { count: resCount } = await supabase
-                .from("reservations")
-                .select("*", { count: 'exact', head: true });
+            const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+            setAov(avgOrderValue);
 
             setStats({
                 totalOrders,
                 totalRevenue,
-                pendingOrders,
-                todayOrders: totalOrders, // "Today" stat is same as "Total" in a daily reset view
-                totalReservations: resCount || 0,
+                pendingOrders: todayOrdersList.filter(o => o.status === "Pending").length,
+                todayOrders: totalOrders,
+                totalReservations: 0,
             });
 
-            // Aggregate Top Items (Daily reset)
+            const { count: resCount } = await supabase
+                .from("reservations")
+                .select("*", { count: 'exact', head: true });
+            if (resCount !== null) setStats(prev => ({ ...prev, totalReservations: resCount }));
+
+            // Aggregate Top Items
             const itemCounts: Record<string, number> = {};
             todayOrdersList.forEach(order => {
                 order.order_items?.forEach((item: any) => {
                     itemCounts[item.menu_item_name] = (itemCounts[item.menu_item_name] || 0) + item.quantity;
                 });
             });
-            const sortedItems = Object.entries(itemCounts)
+            setTopItems(Object.entries(itemCounts)
                 .map(([name, count]) => ({ name, count }))
                 .sort((a, b) => b.count - a.count)
-                .slice(0, 5);
-            setTopItems(sortedItems);
+                .slice(0, 5));
 
-            // Aggregate Hot Locations (Daily reset)
+            // Aggregate Locations
             const locationCounts: Record<string, number> = {};
             todayOrdersList.forEach(order => {
-                const parts = order.address.split(',');
-                const area = parts.length > 1 ? parts[parts.length - 2].trim() : order.address.trim();
+                const parts = (order.address || "Counter").split(',');
+                const area = parts.length > 1 ? parts[parts.length - 2].trim() : parts[0].trim();
                 locationCounts[area] = (locationCounts[area] || 0) + 1;
             });
-            const sortedLocations = Object.entries(locationCounts)
+            setHotLocations(Object.entries(locationCounts)
                 .map(([name, count]) => ({ name, count }))
                 .sort((a, b) => b.count - a.count)
-                .slice(0, 5);
-            setHotLocations(sortedLocations);
+                .slice(0, 5));
 
-            // Recent 5 orders (Show all remaining <24h orders so screen isn't empty after 12 AM)
+            // Aggregate Customer Frequency
+            const custCounts: Record<string, { name: string, count: number }> = {};
+            allOrders.forEach(o => {
+                const phone = o.customer_phone;
+                if (!custCounts[phone]) custCounts[phone] = { name: o.customer_name, count: 0 };
+                custCounts[phone].count++;
+            });
+            setCustomerFreqs(Object.entries(custCounts)
+                .map(([phone, data]) => ({ phone, name: data.name, count: data.count }))
+                .sort((a, b) => b.count - a.count)
+                .slice(0, 5));
+
+            // Advanced Analytics: Order Types
+            const typeCounts: Record<string, number> = { "Dine-in": 0, "Delivery": 0, "Counter": 0 };
+            todayOrdersList.forEach(o => {
+                const type = o.order_type || "Delivery";
+                typeCounts[type] = (typeCounts[type] || 0) + 1;
+            });
+            setOrderTypes(Object.entries(typeCounts).map(([name, value]) => ({ name, value })));
+
+            // Advanced Analytics: Hourly Revenue
+            const hours: Record<string, number> = {};
+            for (let i = 0; i < 24; i++) {
+                const label = i.toString().padStart(2, '0') + ":00";
+                hours[label] = 0;
+            }
+            todayOrdersList.forEach(o => {
+                const hour = new Date(o.created_at).toLocaleTimeString("en-GB", {
+                    timeZone: "Asia/Kolkata",
+                    hour: '2-digit',
+                    hour12: false
+                }) + ":00";
+                hours[hour] = (hours[hour] || 0) + Number(o.total_amount);
+            });
+            setHourlyRevenue(Object.entries(hours).map(([hour, amount]) => ({ hour, amount })));
+
+            // Kitchen Performance Analytics Aggregation
+            const completedOrders = allOrders.filter(o => o.preparing_at && o.ready_at);
+            const prepTimes = completedOrders.map(o => (new Date(o.ready_at).getTime() - new Date(o.preparing_at).getTime()) / 60000);
+            const avgPrep = prepTimes.length > 0 ? prepTimes.reduce((a, b) => a + b, 0) / prepTimes.length : 0;
+
+            const fullyCompleted = allOrders.filter(o => o.completed_at && o.created_at);
+            const totalTimes = fullyCompleted.map(o => (new Date(o.completed_at).getTime() - new Date(o.created_at).getTime()) / 60000);
+            const avgTotal = totalTimes.length > 0 ? totalTimes.reduce((a, b) => a + b, 0) / totalTimes.length : 0;
+
+            const delayedOrdersCount = allOrders.filter(o => {
+                const start = o.preparing_at ? new Date(o.preparing_at).getTime() : null;
+                const end = o.ready_at ? new Date(o.ready_at).getTime() : Date.now();
+                if (!start) return false;
+                return (end - start) / 60000 > 20 && o.status !== "Cancelled";
+            }).length;
+
+            setKitchenStats({
+                avgPrepTime: Math.round(avgPrep),
+                avgCompletionTime: Math.round(avgTotal),
+                delayedOrders: delayedOrdersCount,
+                peakLoadHour: Object.entries(hours).sort((a, b) => b[1] - a[1])[0]?.[0] || "--:--"
+            });
+
             setRecentOrders(allOrders.slice(0, 5));
+        }
+
+        if (tables) {
+            setTableSummary({
+                available: tables.filter(t => t.status === "Available").length,
+                occupied: tables.filter(t => t.status === "Occupied").length,
+                reserved: tables.filter(t => t.status === "Reserved").length,
+            });
         }
 
         setLoading(false);
@@ -181,16 +282,15 @@ export default function AdminDashboard() {
         }
     };
 
-    if (loading) {
-        return (
-            <div className="flex items-center justify-center p-20">
-                <div className="text-[var(--color-pizza-red)] animate-pulse font-bold">Loading Analytics...</div>
-            </div>
-        );
-    }
-
     return (
         <div className="space-y-8 relative">
+            {loading && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-sm">
+                    <div className="text-[var(--color-pizza-red)] animate-pulse font-bold bg-black/80 px-8 py-4 rounded-full border border-white/10 shadow-2xl tracking-widest uppercase text-sm">
+                        Synchronizing Matrix...
+                    </div>
+                </div>
+            )}
             {/* Real-time Order Toast */}
             <AnimatePresence>
                 {newOrderToast && (
@@ -241,21 +341,180 @@ export default function AdminDashboard() {
             </div>
 
             {/* Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
                 <StatsCard title="Orders" value={stats.totalOrders} icon={ShoppingBag} />
-                <StatsCard title="Revenue" value={`₹${stats.totalRevenue}`} icon={DollarSign} />
+                <StatsCard title="Revenue" value={`₹${stats.totalRevenue.toLocaleString()}`} icon={DollarSign} />
+                <StatsCard title="AOV" value={`₹${Math.round(aov)}`} icon={BarChart} />
                 <StatsCard title="Pending" value={stats.pendingOrders} icon={Clock} />
                 <StatsCard title="Reservations" value={stats.totalReservations} icon={Calendar} />
                 <StatsCard title="Today" value={stats.todayOrders} icon={TrendingUp} />
             </div>
 
-            {/* Analytics Section */}
+            {/* Kitchen Performance Intelligence */}
+            <Card className="bg-white/5 border-white/10 overflow-hidden">
+                <CardHeader className="border-b border-white/5 bg-white/5 py-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <ChefHat className="text-pizza-red" size={20} />
+                            <CardTitle className="text-white text-lg font-bold uppercase tracking-tight">Kitchen Performance</CardTitle>
+                        </div>
+                        <Link href="/admin/kds" className="text-xs text-pizza-red hover:underline font-bold uppercase tracking-widest">Go to KDS →</Link>
+                    </div>
+                </CardHeader>
+                <CardContent className="p-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <StatsCard
+                            title="Avg Prep Time"
+                            value={`${kitchenStats.avgPrepTime}m`}
+                            icon={Timer}
+                            trend={kitchenStats.avgPrepTime < 15 ? "Optimized" : "Slow"}
+                            trendUp={kitchenStats.avgPrepTime < 15}
+                        />
+                        <StatsCard
+                            title="Avg Completion"
+                            value={`${kitchenStats.avgCompletionTime}m`}
+                            icon={CheckCircle2}
+                        />
+                        <StatsCard
+                            title="Delayed Orders"
+                            value={kitchenStats.delayedOrders}
+                            icon={AlertCircle}
+                            trendUp={false}
+                            trend={kitchenStats.delayedOrders > 0 ? "Attention" : "All Clear"}
+                        />
+                        <StatsCard
+                            title="Peak Load"
+                            value={kitchenStats.peakLoadHour}
+                            icon={TrendingUp}
+                        />
+                    </div>
+                </CardContent>
+            </Card>
+
+            {/* Live Table Summary */}
+            <Card className="bg-white/5 border-white/10 overflow-hidden">
+                <CardHeader className="border-b border-white/5 bg-white/5 py-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <Utensils className="text-orange-500" size={20} />
+                            <CardTitle className="text-white text-lg font-bold uppercase tracking-tight">Live Table Occupancy</CardTitle>
+                        </div>
+                        <Link href="/admin/tables" className="text-xs text-orange-500 hover:underline font-bold uppercase tracking-widest">Manage Tables →</Link>
+                    </div>
+                </CardHeader>
+                <CardContent className="p-6">
+                    <div className="flex flex-wrap gap-4">
+                        <div className="flex-1 min-w-[120px] p-4 bg-green-500/10 border border-green-500/20 rounded-xl text-center">
+                            <p className="text-2xl font-bold text-green-500">{tableSummary.available}</p>
+                            <p className="text-[10px] text-green-500/70 font-black uppercase tracking-widest mt-1">Available</p>
+                        </div>
+                        <div className="flex-1 min-w-[120px] p-4 bg-pizza-red/10 border border-pizza-red/20 rounded-xl text-center">
+                            <p className="text-2xl font-bold text-pizza-red">{tableSummary.occupied}</p>
+                            <p className="text-[10px] text-pizza-red/70 font-black uppercase tracking-widest mt-1">Occupied</p>
+                        </div>
+                        <div className="flex-1 min-w-[120px] p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl text-center">
+                            <p className="text-2xl font-bold text-blue-500">{tableSummary.reserved}</p>
+                            <p className="text-[10px] text-blue-500/70 font-black uppercase tracking-widest mt-1">Reserved</p>
+                        </div>
+                        <div className="flex-[2] min-w-[200px] p-4 bg-white/5 border border-white/10 rounded-xl flex items-center justify-around">
+                            <div className="text-center">
+                                <Users size={20} className="text-gray-400 mx-auto mb-1" />
+                                <p className="text-xs text-gray-500 font-bold uppercase">Total Cap.</p>
+                                <p className="text-lg font-bold text-white">{tableSummary.available + tableSummary.occupied + tableSummary.reserved}</p>
+                            </div>
+                            <div className="h-8 w-px bg-white/10" />
+                            <div className="text-center">
+                                <ChartPie size={20} className="text-gray-400 mx-auto mb-1" />
+                                <p className="text-xs text-gray-500 font-bold uppercase">Fill Rate</p>
+                                <p className="text-lg font-bold text-white">
+                                    {Math.round((tableSummary.occupied / (tableSummary.available + tableSummary.occupied + tableSummary.reserved || 1)) * 100)}%
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
+
+            {/* Peak Hours & Order Types */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Hourly Sales Trend */}
+                <Card className="lg:col-span-2 bg-white/5 border-white/10 overflow-hidden">
+                    <CardHeader className="border-b border-white/5 bg-white/5">
+                        <div className="flex items-center gap-2">
+                            <TrendingUp className="text-blue-500" size={20} />
+                            <CardTitle className="text-white text-lg font-bold uppercase tracking-tight">Hourly Revenue Peak Matrix</CardTitle>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="p-0 pt-6 h-[280px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={hourlyRevenue} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                                <defs>
+                                    <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+                                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                                    </linearGradient>
+                                </defs>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" vertical={false} />
+                                <XAxis dataKey="hour" stroke="#ffffff50" fontSize={10} tickLine={false} axisLine={false} />
+                                <YAxis stroke="#ffffff50" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `₹${val}`} />
+                                <Tooltip
+                                    contentStyle={{ backgroundColor: '#111', border: '1px solid #ffffff20', borderRadius: '8px', fontSize: '12px' }}
+                                    itemStyle={{ color: '#3b82f6' }}
+                                />
+                                <Area type="monotone" dataKey="amount" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorRevenue)" />
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    </CardContent>
+                </Card>
+
+                {/* Order Type Distribution */}
+                <Card className="bg-white/5 border-white/10 overflow-hidden">
+                    <CardHeader className="border-b border-white/5 bg-white/5">
+                        <div className="flex items-center gap-2">
+                            <ChartPie className="text-purple-500" size={20} />
+                            <CardTitle className="text-white text-lg font-bold uppercase tracking-tight">Sales Channels</CardTitle>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="p-6 h-[280px] flex flex-col items-center justify-center">
+                        <ResponsiveContainer width="100%" height={200}>
+                            <RePieChart>
+                                <Pie
+                                    data={orderTypes}
+                                    cx="50%"
+                                    cy="50%"
+                                    innerRadius={60}
+                                    outerRadius={80}
+                                    paddingAngle={8}
+                                    dataKey="value"
+                                >
+                                    {orderTypes.map((entry, index) => (
+                                        <Cell key={`cell-${index}`} fill={['#ef4444', '#3b82f6', '#10b981'][index % 3]} />
+                                    ))}
+                                </Pie>
+                                <Tooltip
+                                    contentStyle={{ backgroundColor: '#111', border: '1px solid #ffffff20', borderRadius: '8px', fontSize: '12px' }}
+                                />
+                            </RePieChart>
+                        </ResponsiveContainer>
+                        <div className="flex justify-center gap-4 mt-4 w-full">
+                            {orderTypes.map((type, idx) => (
+                                <div key={type.name} className="flex items-center gap-1.5">
+                                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: ['#ef4444', '#3b82f6', '#10b981'][idx % 3] }} />
+                                    <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{type.name}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
+
+            {/* Insights Section */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Most Ordered Items */}
                 <Card className="bg-white/5 border-white/10 overflow-hidden">
                     <CardHeader className="border-b border-white/5 bg-white/5">
                         <div className="flex items-center gap-2">
-                            <Target className="text-[var(--color-pizza-red)]" size={20} />
+                            <Target className="text-pizza-red" size={20} />
                             <CardTitle className="text-white text-lg font-bold uppercase tracking-tight">Most Ordered Items</CardTitle>
                         </div>
                     </CardHeader>
@@ -271,11 +530,11 @@ export default function AdminDashboard() {
                                         <div key={item.name} className="space-y-2">
                                             <div className="flex justify-between text-sm">
                                                 <span className="text-gray-200 font-medium">#{idx + 1} {item.name}</span>
-                                                <span className="text-[var(--color-pizza-red)] font-bold">{item.count} sold</span>
+                                                <span className="text-pizza-red font-bold">{item.count} sold</span>
                                             </div>
                                             <div className="h-2 bg-white/5 rounded-full overflow-hidden">
                                                 <div
-                                                    className="h-full bg-gradient-to-r from-[var(--color-pizza-red)]/50 to-[var(--color-pizza-red)] rounded-full transition-all duration-1000"
+                                                    className="h-full bg-gradient-to-r from-pizza-red/50 to-pizza-red rounded-full transition-all duration-1000"
                                                     style={{ width: `${percentage}%` }}
                                                 />
                                             </div>
@@ -287,12 +546,45 @@ export default function AdminDashboard() {
                     </CardContent>
                 </Card>
 
+                {/* Top Customers */}
+                <Card className="bg-white/5 border-white/10 overflow-hidden">
+                    <CardHeader className="border-b border-white/5 bg-white/5">
+                        <div className="flex items-center gap-2">
+                            <Users className="text-blue-500" size={20} />
+                            <CardTitle className="text-white text-lg font-bold uppercase tracking-tight">Loyal Patrons</CardTitle>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="p-6">
+                        {customerFreqs.length === 0 ? (
+                            <p className="text-gray-500 text-center py-10">Waiting for regulars...</p>
+                        ) : (
+                            <div className="space-y-4">
+                                {customerFreqs.map((cust, idx) => (
+                                    <div key={cust.phone} className="flex items-center gap-4 p-3 bg-white/5 rounded-lg border border-white/5 hover:bg-white/10 transition-colors">
+                                        <div className="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500 font-bold">
+                                            {cust.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
+                                        </div>
+                                        <div className="flex-1">
+                                            <p className="text-sm font-bold text-gray-200">{cust.name}</p>
+                                            <p className="text-[10px] text-gray-500 uppercase tracking-widest">{cust.phone}</p>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="text-sm font-black text-white">{cust.count}</p>
+                                            <p className="text-[10px] text-gray-500 uppercase font-bold tracking-tighter">Orders</p>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+
                 {/* Hot Locations */}
                 <Card className="bg-white/5 border-white/10 overflow-hidden">
                     <CardHeader className="border-b border-white/5 bg-white/5">
                         <div className="flex items-center gap-2">
-                            <PieChart className="text-purple-500" size={20} />
-                            <CardTitle className="text-white text-lg font-bold uppercase tracking-tight">Hot Locations</CardTitle>
+                            <MapPin className="text-purple-500" size={20} />
+                            <CardTitle className="text-white text-lg font-bold uppercase tracking-tight">Hot Delivery Zones</CardTitle>
                         </div>
                     </CardHeader>
                     <CardContent className="p-6">

@@ -1,18 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap, CircleMarker } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 // Fix for default marker icons in Leaflet with Next.js
-const DefaultIcon = L.icon({
-    iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-    shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-    iconSize: [25, 41],
-    iconAnchor: [12, 41],
-});
-L.Marker.prototype.options.icon = DefaultIcon;
+const setupLeafletIcons = () => {
+    // Only run this on the client
+    if (typeof window !== 'undefined') {
+        const DefaultIcon = L.icon({
+            iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+            shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+            iconSize: [25, 41],
+            iconAnchor: [12, 41],
+        });
+        L.Marker.prototype.options.icon = DefaultIcon;
+    }
+};
+setupLeafletIcons();
 
 interface Order {
     id: string;
@@ -47,6 +53,11 @@ function ChangeView({ center }: { center: [number, number] }) {
 
 export default function OrderMap({ orders, hotLocations = [] }: OrderMapProps) {
     const [points, setPoints] = useState<{ lat: number; lng: number; order: Order }[]>([]);
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => {
+        setMounted(true);
+    }, []);
 
     useEffect(() => {
         const parsedPoints = orders
@@ -70,6 +81,14 @@ export default function OrderMap({ orders, hotLocations = [] }: OrderMapProps) {
     const defaultCenter: [number, number] = points.length > 0
         ? [points[0].lat, points[0].lng]
         : [27.5967, 94.7007]; // Default to Silapathar, Assam if no points
+
+    if (!mounted) return (
+        <div className="w-full h-full bg-black/20 flex items-center justify-center">
+            <div className="text-gray-500 animate-pulse font-bold uppercase tracking-widest text-xs">
+                Generating Map Layers...
+            </div>
+        </div>
+    );
 
     return (
         <div className="w-full h-full rounded-xl overflow-hidden grayscale-[0.5] invert-[0.9] hue-rotate-[180deg] relative">
@@ -96,7 +115,7 @@ export default function OrderMap({ orders, hotLocations = [] }: OrderMapProps) {
 
                     return (
                         <CircleMarker
-                            key={loc.name}
+                            key={`hot-${loc.name}`}
                             center={coords}
                             radius={radius}
                             pathOptions={{
@@ -119,8 +138,8 @@ export default function OrderMap({ orders, hotLocations = [] }: OrderMapProps) {
                 })}
 
                 {/* Individual Order Markers (GPS) */}
-                {points.map((point, idx) => (
-                    <Marker key={idx} position={[point.lat, point.lng]}>
+                {points.map((point) => (
+                    <Marker key={point.order.id} position={[point.lat, point.lng]}>
                         <Popup>
                             <div className="text-black">
                                 <p className="font-bold">{point.order.customer_name}</p>

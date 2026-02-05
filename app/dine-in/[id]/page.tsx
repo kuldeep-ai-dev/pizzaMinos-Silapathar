@@ -206,14 +206,21 @@ export default function DineInPage() {
                     <div className="text-[10px] text-gray-500 uppercase tracking-widest leading-relaxed">
                         <p>Enjoy your meal at Silapather!</p>
                         <p className="mt-2 text-[var(--color-pizza-red)] font-black">QR Menu resets after payment.</p>
-                        <a
-                            href="https://www.mediageny.com"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="mt-6 block text-[9px] text-white/40 hover:text-[var(--color-pizza-red)] font-bold transition-colors"
-                        >
-                            Powered by MediaGeny
-                        </a>
+                        <div className="flex flex-col items-center mt-10 pt-6 border-t border-white/5">
+                            <img
+                                src="/genypos_logo.png"
+                                alt="MediaGeny"
+                                className="h-8 w-auto mb-3 opacity-80"
+                            />
+                            <a
+                                href="https://www.mediageny.com"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10px] text-white/60 hover:text-blue-400 font-black tracking-widest transition-colors uppercase"
+                            >
+                                Powered by MediaGeny
+                            </a>
+                        </div>
                     </div>
                 </motion.div>
             </div>
@@ -221,7 +228,7 @@ export default function DineInPage() {
     }
 
     return (
-        <div className="min-h-screen bg-[var(--color-dark-bg)] pb-32">
+        <div className="min-h-screen bg-[var(--color-dark-bg)] pb-20">
             {/* Header */}
             <header className="sticky top-0 z-40 bg-[var(--color-dark-bg)]/80 backdrop-blur-xl border-b border-white/10 p-4">
                 <div className="container mx-auto flex justify-between items-center">
@@ -259,7 +266,7 @@ export default function DineInPage() {
                     <p className="text-gray-400 text-xs mt-2 max-w-xs mx-auto italic">Pick your favorites from our premium selection downstairs.</p>
                 </div>
 
-                <Menu />
+                <Menu compact />
             </div>
 
             {/* Guest Details Modal */}
@@ -349,12 +356,17 @@ export default function DineInPage() {
             </AnimatePresence>
 
             {/* Footer Branding */}
-            <div className="text-center pb-8">
+            <div className="flex flex-col items-center pb-12 mt-4">
+                <img
+                    src="/genypos_logo.png"
+                    alt="MediaGeny"
+                    className="h-8 w-auto mb-3 opacity-50 hover:opacity-100 transition-opacity"
+                />
                 <a
                     href="https://www.mediageny.com"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-[10px] text-white/30 hover:text-[var(--color-pizza-red)] font-bold uppercase tracking-[0.2em] transition-colors"
+                    className="text-[10px] text-white/40 hover:text-blue-400 font-black uppercase tracking-[0.3em] transition-colors"
                 >
                     Powered by MediaGeny
                 </a>
