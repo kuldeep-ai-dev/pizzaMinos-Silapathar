@@ -37,13 +37,39 @@ export default function MGDashboard() {
     const [maintenanceMode, setMaintenanceMode] = useState(false); // Only visual for now or if we move to DB
     const [saving, setSaving] = useState(false);
     const [successMsg, setSuccessMsg] = useState("");
+    const [activeSessions, setActiveSessions] = useState<any[]>([]);
 
     useEffect(() => {
         // We will now rely on Middleware for redirecting, 
         // but we can still check for visual consistency.
         fetchSettings();
+        fetchActiveSessions();
         setVerifying(false);
+
+        // Real-time listener for active sessions
+        const sessionChannel = supabase
+            .channel('admin_sessions_changes')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'admin_sessions' }, () => {
+                fetchActiveSessions();
+            })
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(sessionChannel);
+        };
     }, []);
+
+    const fetchActiveSessions = async () => {
+        // Only show sessions active in the last 15 minutes
+        const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+        const { data } = await supabase
+            .from("admin_sessions")
+            .select("*")
+            .gt("last_active_at", fifteenMinsAgo)
+            .order("last_active_at", { ascending: false });
+
+        if (data) setActiveSessions(data);
+    };
 
     const fetchSettings = async () => {
         const { data } = await supabase.from("app_settings").select("*");
@@ -215,6 +241,7 @@ export default function MGDashboard() {
                     <TabsTrigger value="credentials">Access Credentials</TabsTrigger>
                     <TabsTrigger value="data" className="data-[state=active]:bg-red-900/20 data-[state=active]:text-red-500">Danger Zone</TabsTrigger>
                     <TabsTrigger value="analytics">Analytics</TabsTrigger>
+                    <TabsTrigger value="security" className="data-[state=active]:bg-green-900/20 data-[state=active]:text-green-500">Security & Sessions</TabsTrigger>
                     <TabsTrigger value="system">System Status</TabsTrigger>
                 </TabsList>
 
@@ -425,6 +452,79 @@ export default function MGDashboard() {
                                     <Button variant="outline" className="w-full border-zinc-700 hover:bg-zinc-800 py-6 font-black uppercase tracking-widest text-[10px]" onClick={() => window.open('/admin', '_blank')}>
                                         Initialize Admin Bridge
                                     </Button>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </div>
+                </TabsContent>
+
+                <TabsContent value="security" className="space-y-6">
+                    <div className="grid grid-cols-1 gap-6">
+                        <Card className="bg-zinc-900/50 border-zinc-800">
+                            <CardHeader>
+                                <div className="flex justify-between items-center">
+                                    <div>
+                                        <CardTitle className="text-white flex items-center gap-2">
+                                            <ShieldAlert className="text-green-500" /> Active Admin Devices
+                                        </CardTitle>
+                                        <CardDescription>Real-time monitoring of authorized panel access</CardDescription>
+                                    </div>
+                                    <Badge variant="secondary" className="bg-green-500/10 text-green-500 border-green-500/20">
+                                        {activeSessions.length} Device(s) Online
+                                    </Badge>
+                                </div>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="space-y-4">
+                                    {activeSessions.length === 0 ? (
+                                        <div className="text-center py-12 bg-black/40 rounded-xl border border-dashed border-zinc-800">
+                                            <p className="text-zinc-500">No active admin sessions detected.</p>
+                                        </div>
+                                    ) : (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                            {activeSessions.map((session) => (
+                                                <div key={session.id} className="p-4 bg-black/60 rounded-xl border border-zinc-800 hover:border-zinc-700 transition-colors">
+                                                    <div className="flex items-start justify-between mb-3">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center">
+                                                                {session.user_agent?.toLowerCase().includes('mobile') ?
+                                                                    <div className="text-[10px] font-bold text-zinc-400">MOB</div> :
+                                                                    <div className="text-[10px] font-bold text-zinc-400">PC</div>
+                                                                }
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-sm font-bold text-white uppercase tracking-tight">
+                                                                    {session.ip_address}
+                                                                </p>
+                                                                <p className="text-[10px] text-zinc-500 font-mono">
+                                                                    {session.session_id}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex h-2 w-2 relative">
+                                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="space-y-2 border-t border-zinc-800/50 pt-3">
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="w-1 h-1 rounded-full bg-red-500" />
+                                                            <p className="text-[11px] text-zinc-300 font-medium">
+                                                                {session.location || "Unknown Location"}
+                                                            </p>
+                                                        </div>
+                                                        <div className="flex items-center justify-between text-[10px]">
+                                                            <span className="text-zinc-500 uppercase tracking-widest font-bold">Last Ping</span>
+                                                            <span className="text-zinc-400">
+                                                                {new Date(session.last_active_at).toLocaleTimeString()}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             </CardContent>
                         </Card>

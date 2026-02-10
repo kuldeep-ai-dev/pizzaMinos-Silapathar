@@ -77,9 +77,55 @@ export async function verifyKDSLogin(password: string) {
 }
 
 /**
- * Logs out the admin by deleting the session cookie.
+ * Logs out the admin by deleting the session cookie and removing active session.
  */
-export async function logoutAdmin() {
+export async function logoutAdmin(sessionId?: string) {
     const { deleteSession } = await import("./auth-server")
     await deleteSession("pizza_admin_session")
+
+    if (sessionId) {
+        const supabase = await createClient()
+        await supabase.from("admin_sessions").delete().eq("session_id", sessionId)
+    }
+}
+
+/**
+ * Registers a new active admin session with device metadata.
+ */
+export async function registerAdminSession(metadata: {
+    sessionId: string;
+    userAgent: string;
+    ip: string;
+    location: string;
+}) {
+    const supabase = await createClient();
+
+    // Clean up old sessions (older than 24h)
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    await supabase.from("admin_sessions").delete().lt("last_active_at", oneDayAgo);
+
+    const { error } = await supabase.from("admin_sessions").upsert({
+        session_id: metadata.sessionId,
+        user_agent: metadata.userAgent,
+        ip_address: metadata.ip,
+        location: metadata.location,
+        last_active_at: new Date().toISOString()
+    }, { onConflict: 'session_id' });
+
+    if (error) console.error("Failed to register session:", error);
+    return { success: !error };
+}
+
+/**
+ * Updates the last active timestamp for an admin session.
+ */
+export async function pingAdminSession(sessionId: string) {
+    const supabase = await createClient();
+    const { error } = await supabase
+        .from("admin_sessions")
+        .update({ last_active_at: new Date().toISOString() })
+        .eq("session_id", sessionId);
+
+    if (error) console.error("Ping failed:", error);
+    return { success: !error };
 }

@@ -1,33 +1,73 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import AdminSplashScreen from "./AdminSplashScreen";
 import { AnimatePresence, motion } from "framer-motion";
 import { usePathname, useRouter } from "next/navigation";
-import { logoutAdmin } from "@/lib/auth-actions";
+import { logoutAdmin, registerAdminSession, pingAdminSession } from "@/lib/auth-actions";
 
 export default function AdminSplashProvider({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
     const router = useRouter();
     const isInvoice = pathname?.startsWith("/admin/invoice");
     const [isLoading, setIsLoading] = useState(!isInvoice);
+    const sessionIdRef = useRef<string | null>(null);
+    const lastPingRef = useRef<number>(0);
 
-    // --- SESSION TIMEOUT LOGIC ---
+    // --- SESSION TIMEOUT & TRACKING LOGIC ---
     const TIMEOUT_MS = 8 * 60 * 1000; // 8 minutes
+    const PING_INTERVAL = 2 * 60 * 1000; // Ping every 2 mins on activity
 
     const handleLogout = useCallback(async () => {
         try {
-            await logoutAdmin();
+            await logoutAdmin(sessionIdRef.current || undefined);
             router.push("/admin/login");
         } catch (error) {
             console.error("Timeout logout failed:", error);
-            // Fallback for safety
             window.location.href = "/admin/login";
         }
     }, [router]);
 
+    // Session Registration & Heartbeat
     useEffect(() => {
-        // Don't track inactivity on login page
+        if (pathname === "/admin/login") return;
+
+        const initSession = async () => {
+            let sId = localStorage.getItem("pizza_admin_device_id");
+            if (!sId) {
+                sId = "dev_" + Math.random().toString(36).substring(2, 15);
+                localStorage.setItem("pizza_admin_device_id", sId);
+            }
+            sessionIdRef.current = sId;
+
+            try {
+                // Fetch Location Data (IP-API is free for non-commercial/low-volume)
+                const res = await fetch("https://ipapi.co/json/");
+                const data = await res.json();
+                const locationStr = `${data.city || "Unknown City"}, ${data.region || ""}, ${data.country_name || ""}`;
+
+                await registerAdminSession({
+                    sessionId: sId,
+                    userAgent: navigator.userAgent,
+                    ip: data.ip || "Unknown",
+                    location: locationStr
+                });
+            } catch (err) {
+                console.error("Session registration failed:", err);
+                // Fallback registration without geo
+                await registerAdminSession({
+                    sessionId: sId,
+                    userAgent: navigator.userAgent,
+                    ip: "Unknown",
+                    location: "Unknown Location"
+                });
+            }
+        };
+
+        initSession();
+    }, [pathname]);
+
+    useEffect(() => {
         if (pathname === "/admin/login") return;
 
         let timeoutId: NodeJS.Timeout;
@@ -35,32 +75,22 @@ export default function AdminSplashProvider({ children }: { children: React.Reac
         const resetTimer = () => {
             if (timeoutId) clearTimeout(timeoutId);
             timeoutId = setTimeout(handleLogout, TIMEOUT_MS);
+
+            // Throttled Ping
+            const now = Date.now();
+            if (sessionIdRef.current && now - lastPingRef.current > PING_INTERVAL) {
+                pingAdminSession(sessionIdRef.current);
+                lastPingRef.current = now;
+            }
         };
 
-        // Events that indicate activity
-        const events = [
-            "mousedown",
-            "mousemove",
-            "keypress",
-            "scroll",
-            "touchstart",
-            "click",
-            "keydown"
-        ];
-
-        // Initialize timer
+        const events = ["mousedown", "mousemove", "keypress", "scroll", "touchstart", "click", "keydown"];
         resetTimer();
-
-        // Add listeners
-        events.forEach(event => {
-            window.addEventListener(event, resetTimer);
-        });
+        events.forEach(event => window.addEventListener(event, resetTimer));
 
         return () => {
             if (timeoutId) clearTimeout(timeoutId);
-            events.forEach(event => {
-                window.removeEventListener(event, resetTimer);
-            });
+            events.forEach(event => window.removeEventListener(event, resetTimer));
         };
     }, [pathname, handleLogout, TIMEOUT_MS]);
 
