@@ -12,7 +12,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import AdminSidebar from "@/components/admin/AdminSidebar";
 import { calculateDiscountedPrice } from "@/utils/pricing";
 
 interface MenuItem {
@@ -164,11 +163,10 @@ export default function AdminPOSPage() {
     };
 
     return (
-        <div className="flex h-screen bg-[#0a0a0a] overflow-hidden">
-            <AdminSidebar />
+        <div className="flex h-screen overflow-hidden">
             <main className="flex-1 flex gap-0">
                 {/* Left: Product Selection */}
-                <div className="flex-1 flex flex-col p-6 overflow-hidden">
+                <div className="flex-1 flex flex-col p-6 pt-10 overflow-hidden">
                     <header className="mb-6 flex flex-col gap-4 bg-white/5 p-4 rounded-xl border border-white/10">
                         <div className="flex items-center gap-4">
                             <div className="relative flex-1">
