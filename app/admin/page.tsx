@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/utils/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
+import { cn } from "@/lib/utils";
 import StatsCard from "@/components/admin/StatsCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -97,7 +98,19 @@ export default function AdminDashboard() {
         peakLoadHour: "00:00"
     });
     const [loading, setLoading] = useState(true);
+    const [revenueFilter, setRevenueFilter] = useState<'today' | '1w' | '1m'>('today');
+    const [topItemsFilter, setTopItemsFilter] = useState<'today' | '1w' | '1m'>('today');
+    const [config, setConfig] = useState<Record<string, number>>({
+        kitchen_prep_days: 7,
+        kitchen_peak_days: 7,
+        loyal_patrons_days: 30,
+        hot_zones_days: 30
+    });
     const [newOrderToast, setNewOrderToast] = useState<Order | null>(null);
+
+    useEffect(() => {
+        fetchDashboardData();
+    }, [revenueFilter, topItemsFilter]);
 
     useEffect(() => {
         cleanupAndFetch();
@@ -116,13 +129,7 @@ export default function AdminDashboard() {
 
     const cleanupAndFetch = async () => {
         setLoading(true);
-
-        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-        await supabase
-            .from("orders")
-            .delete()
-            .lt("created_at", twentyFourHoursAgo);
-
+        // REMOVED: Automatic 24-hour order deletion to allow weekly/monthly analytics
         await fetchDashboardData();
     };
 
@@ -134,12 +141,28 @@ export default function AdminDashboard() {
             day: '2-digit'
         }).split('/').reverse().join('-');
 
+        // Fetch Analytics Settings
+        const { data: settings } = await supabase.from("app_settings").select("*");
+        const newConfig = { ...config };
+        if (settings) {
+            settings.forEach(s => {
+                if (s.key === 'analytics_kitchen_prep_days') newConfig.kitchen_prep_days = parseInt(s.value);
+                if (s.key === 'analytics_kitchen_peak_days') newConfig.kitchen_peak_days = parseInt(s.value);
+                if (s.key === 'analytics_loyal_patrons_days') newConfig.loyal_patrons_days = parseInt(s.value);
+                if (s.key === 'analytics_hot_zones_days') newConfig.hot_zones_days = parseInt(s.value);
+            });
+            setConfig(newConfig);
+        }
+
+        // Fetch past 30 days of orders for analytics
+        const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
         const { data: allOrders } = await supabase
             .from("orders")
             .select(`
                 *,
                 order_items (*)
             `)
+            .gte("created_at", thirtyDaysAgo)
             .order("created_at", { ascending: false });
 
         const { data: tables } = await supabase
@@ -147,26 +170,36 @@ export default function AdminDashboard() {
             .select("*");
 
         if (allOrders) {
-            const todayOrdersList = allOrders.filter(o => {
-                const orderDateIST = new Date(o.created_at).toLocaleDateString("en-GB", {
-                    timeZone: "Asia/Kolkata",
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit'
-                }).split('/').reverse().join('-');
-                return orderDateIST === istDateStr;
-            });
+            const filterByDays = (orders: any[], days: number) => {
+                const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+                return orders.filter(o => new Date(o.created_at) >= cutoff);
+            };
 
-            const totalRevenue = todayOrdersList.reduce((sum, order) => sum + Number(order.total_amount), 0);
-            const totalOrders = todayOrdersList.length;
-            const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+            const getOrdersForFilter = (filter: string) => {
+                if (filter === 'today') return allOrders.filter(o => {
+                    const d = new Date(o.created_at).toLocaleDateString("en-GB", { timeZone: "Asia/Kolkata", year: 'numeric', month: '2-digit', day: '2-digit' }).split('/').reverse().join('-');
+                    return d === istDateStr;
+                });
+                if (filter === '1w') return filterByDays(allOrders, 7);
+                if (filter === '1m') return filterByDays(allOrders, 30);
+                return allOrders;
+            };
+
+            const todayOrdersList = getOrdersForFilter('today');
+            const revenueOrders = getOrdersForFilter(revenueFilter);
+            const topItemOrders = getOrdersForFilter(topItemsFilter);
+
+            // Stats (Always show Today for the top cards)
+            const todayRevenue = todayOrdersList.reduce((sum, order) => sum + Number(order.total_amount), 0);
+            const todayOrdersCount = todayOrdersList.length;
+            const avgOrderValue = todayOrdersCount > 0 ? todayRevenue / todayOrdersCount : 0;
             setAov(avgOrderValue);
 
             setStats({
-                totalOrders,
-                totalRevenue,
+                totalOrders: todayOrdersCount,
+                totalRevenue: todayRevenue,
                 pendingOrders: todayOrdersList.filter(o => o.status === "Pending").length,
-                todayOrders: totalOrders,
+                todayOrders: todayOrdersCount,
                 totalReservations: 0,
             });
 
@@ -175,9 +208,9 @@ export default function AdminDashboard() {
                 .select("*", { count: 'exact', head: true });
             if (resCount !== null) setStats(prev => ({ ...prev, totalReservations: resCount }));
 
-            // Aggregate Top Items
+            // Aggregate Top Items (Based on filter)
             const itemCounts: Record<string, number> = {};
-            todayOrdersList.forEach(order => {
+            topItemOrders.forEach(order => {
                 order.order_items?.forEach((item: any) => {
                     itemCounts[item.menu_item_name] = (itemCounts[item.menu_item_name] || 0) + item.quantity;
                 });
@@ -187,9 +220,10 @@ export default function AdminDashboard() {
                 .sort((a, b) => b.count - a.count)
                 .slice(0, 5));
 
-            // Aggregate Locations
+            // Aggregate Locations (1 Month data)
+            const hotZoneOrders = filterByDays(allOrders, newConfig.hot_zones_days);
             const locationCounts: Record<string, number> = {};
-            todayOrdersList.forEach(order => {
+            hotZoneOrders.forEach(order => {
                 const parts = (order.address || "Counter").split(',');
                 const area = parts.length > 1 ? parts[parts.length - 2].trim() : parts[0].trim();
                 locationCounts[area] = (locationCounts[area] || 0) + 1;
@@ -199,9 +233,10 @@ export default function AdminDashboard() {
                 .sort((a, b) => b.count - a.count)
                 .slice(0, 5));
 
-            // Aggregate Customer Frequency
+            // Aggregate Customer Frequency (1 Month data)
+            const loyalOrders = filterByDays(allOrders, newConfig.loyal_patrons_days);
             const custCounts: Record<string, { name: string, count: number }> = {};
-            allOrders.forEach(o => {
+            loyalOrders.forEach(o => {
                 const phone = o.customer_phone;
                 if (!custCounts[phone]) custCounts[phone] = { name: o.customer_name, count: 0 };
                 custCounts[phone].count++;
@@ -211,7 +246,7 @@ export default function AdminDashboard() {
                 .sort((a, b) => b.count - a.count)
                 .slice(0, 5));
 
-            // Advanced Analytics: Order Types
+            // Advanced Analytics: Order Types (Today)
             const typeCounts: Record<string, number> = { "Dine-in": 0, "Delivery": 0, "Counter": 0 };
             todayOrdersList.forEach(o => {
                 const type = o.order_type || "Delivery";
@@ -219,43 +254,55 @@ export default function AdminDashboard() {
             });
             setOrderTypes(Object.entries(typeCounts).map(([name, value]) => ({ name, value })));
 
-            // Advanced Analytics: Hourly Revenue
+            // Advanced Analytics: Hourly Revenue (Based on revenueFilter)
             const hours: Record<string, number> = {};
-            for (let i = 0; i < 24; i++) {
-                const label = i.toString().padStart(2, '0') + ":00";
-                hours[label] = 0;
+            if (revenueFilter === 'today') {
+                for (let i = 0; i < 24; i++) {
+                    const label = i.toString().padStart(2, '0') + ":00";
+                    hours[label] = 0;
+                }
+                revenueOrders.forEach(o => {
+                    const hour = new Date(o.created_at).toLocaleTimeString("en-GB", { timeZone: "Asia/Kolkata", hour: '2-digit', hour12: false }) + ":00";
+                    hours[hour] = (hours[hour] || 0) + Number(o.total_amount);
+                });
+            } else {
+                // For 1w/1m, show daily revenue
+                revenueOrders.forEach(o => {
+                    const day = new Date(o.created_at).toLocaleDateString("en-GB", { timeZone: "Asia/Kolkata", day: '2-digit', month: 'short' });
+                    hours[day] = (hours[day] || 0) + Number(o.total_amount);
+                });
             }
-            todayOrdersList.forEach(o => {
-                const hour = new Date(o.created_at).toLocaleTimeString("en-GB", {
-                    timeZone: "Asia/Kolkata",
-                    hour: '2-digit',
-                    hour12: false
-                }) + ":00";
-                hours[hour] = (hours[hour] || 0) + Number(o.total_amount);
-            });
             setHourlyRevenue(Object.entries(hours).map(([hour, amount]) => ({ hour, amount })));
 
-            // Kitchen Performance Analytics Aggregation
-            const completedOrders = allOrders.filter(o => o.preparing_at && o.ready_at);
+            // Kitchen Performance (Window based)
+            const prepOrders = filterByDays(allOrders, newConfig.kitchen_prep_days);
+            const completedOrders = prepOrders.filter(o => o.preparing_at && o.ready_at);
             const prepTimes = completedOrders.map(o => (new Date(o.ready_at).getTime() - new Date(o.preparing_at).getTime()) / 60000);
             const avgPrep = prepTimes.length > 0 ? prepTimes.reduce((a, b) => a + b, 0) / prepTimes.length : 0;
 
-            const fullyCompleted = allOrders.filter(o => o.completed_at && o.created_at);
+            const fullyCompleted = prepOrders.filter(o => o.completed_at && o.created_at);
             const totalTimes = fullyCompleted.map(o => (new Date(o.completed_at).getTime() - new Date(o.created_at).getTime()) / 60000);
             const avgTotal = totalTimes.length > 0 ? totalTimes.reduce((a, b) => a + b, 0) / totalTimes.length : 0;
 
-            const delayedOrdersCount = allOrders.filter(o => {
+            const delayedOrdersCount = prepOrders.filter(o => {
                 const start = o.preparing_at ? new Date(o.preparing_at).getTime() : null;
                 const end = o.ready_at ? new Date(o.ready_at).getTime() : Date.now();
                 if (!start) return false;
                 return (end - start) / 60000 > 20 && o.status !== "Cancelled";
             }).length;
 
+            const peakOrders = filterByDays(allOrders, newConfig.kitchen_peak_days);
+            const peakHours: Record<string, number> = {};
+            peakOrders.forEach(o => {
+                const hour = new Date(o.created_at).toLocaleTimeString("en-GB", { timeZone: "Asia/Kolkata", hour: '2-digit', hour12: false }) + ":00";
+                peakHours[hour] = (peakHours[hour] || 0) + 1;
+            });
+
             setKitchenStats({
                 avgPrepTime: Math.round(avgPrep),
                 avgCompletionTime: Math.round(avgTotal),
                 delayedOrders: delayedOrdersCount,
-                peakLoadHour: Object.entries(hours).sort((a, b) => b[1] - a[1])[0]?.[0] || "--:--"
+                peakLoadHour: Object.entries(peakHours).sort((a, b) => b[1] - a[1])[0]?.[0] || "--:--"
             });
 
             setRecentOrders(allOrders.slice(0, 5));
@@ -438,11 +485,28 @@ export default function AdminDashboard() {
             {/* Peak Hours & Order Types */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Hourly Sales Trend */}
-                <Card className="lg:col-span-2 bg-white/5 border-white/10 overflow-hidden">
-                    <CardHeader className="border-b border-white/5 bg-white/5">
-                        <div className="flex items-center gap-2">
-                            <TrendingUp className="text-blue-500" size={20} />
-                            <CardTitle className="text-white text-lg font-bold uppercase tracking-tight">Hourly Revenue Peak Matrix</CardTitle>
+                <Card className="lg:col-span-2 bg-zinc-900/50 border-zinc-800">
+                    <CardHeader className="flex flex-row items-center justify-between">
+                        <div>
+                            <CardTitle className="text-white flex items-center gap-2">
+                                <TrendingUp className="text-[var(--color-pizza-red)]" /> Revenue Analytics
+                            </CardTitle>
+                        </div>
+                        <div className="flex bg-black/40 p-1 rounded-xl border border-white/5">
+                            {(['today', '1w', '1m'] as const).map((f) => (
+                                <button
+                                    key={f}
+                                    onClick={() => setRevenueFilter(f)}
+                                    className={cn(
+                                        "px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
+                                        revenueFilter === f
+                                            ? "bg-[var(--color-pizza-red)] text-white shadow-lg shadow-[var(--color-pizza-red)]/20"
+                                            : "text-gray-500 hover:text-white"
+                                    )}
+                                >
+                                    {f === 'today' ? 'Today' : f === '1w' ? 'Weekly' : 'Monthly'}
+                                </button>
+                            ))}
                         </div>
                     </CardHeader>
                     <CardContent className="p-0 pt-6 h-[280px]">
@@ -511,16 +575,31 @@ export default function AdminDashboard() {
             {/* Insights Section */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Most Ordered Items */}
-                <Card className="bg-white/5 border-white/10 overflow-hidden">
-                    <CardHeader className="border-b border-white/5 bg-white/5">
-                        <div className="flex items-center gap-2">
-                            <Target className="text-pizza-red" size={20} />
-                            <CardTitle className="text-white text-lg font-bold uppercase tracking-tight">Most Ordered Items</CardTitle>
+                <Card className="bg-zinc-900/50 border-zinc-800">
+                    <CardHeader className="flex flex-row items-center justify-between">
+                        <CardTitle className="text-white flex items-center gap-2">
+                            <Target className="text-[var(--color-pizza-red)]" /> Popular Choices
+                        </CardTitle>
+                        <div className="flex bg-black/40 p-1 rounded-xl border border-white/5 scale-90">
+                            {(['today', '1w', '1m'] as const).map((f) => (
+                                <button
+                                    key={f}
+                                    onClick={() => setTopItemsFilter(f)}
+                                    className={cn(
+                                        "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
+                                        topItemsFilter === f
+                                            ? "bg-[var(--color-pizza-red)] text-white"
+                                            : "text-gray-500 hover:text-white"
+                                    )}
+                                >
+                                    {f === 'today' ? 'Day' : f === '1w' ? 'Week' : 'Month'}
+                                </button>
+                            ))}
                         </div>
                     </CardHeader>
                     <CardContent className="p-6">
                         {topItems.length === 0 ? (
-                            <p className="text-gray-500 text-center py-10">No sales data yet</p>
+                            <p className="text-gray-500 text-center py-10">Waiting for data...</p>
                         ) : (
                             <div className="space-y-6">
                                 {topItems.map((item, idx) => {
@@ -530,11 +609,11 @@ export default function AdminDashboard() {
                                         <div key={item.name} className="space-y-2">
                                             <div className="flex justify-between text-sm">
                                                 <span className="text-gray-200 font-medium">#{idx + 1} {item.name}</span>
-                                                <span className="text-pizza-red font-bold">{item.count} sold</span>
+                                                <span className="text-[var(--color-pizza-red)] font-bold">{item.count} items</span>
                                             </div>
                                             <div className="h-2 bg-white/5 rounded-full overflow-hidden">
                                                 <div
-                                                    className="h-full bg-gradient-to-r from-pizza-red/50 to-pizza-red rounded-full transition-all duration-1000"
+                                                    className="h-full bg-gradient-to-r from-[var(--color-pizza-red)]/50 to-[var(--color-pizza-red)] rounded-full transition-all duration-1000"
                                                     style={{ width: `${percentage}%` }}
                                                 />
                                             </div>
@@ -547,26 +626,25 @@ export default function AdminDashboard() {
                 </Card>
 
                 {/* Top Customers */}
-                <Card className="bg-white/5 border-white/10 overflow-hidden">
-                    <CardHeader className="border-b border-white/5 bg-white/5">
-                        <div className="flex items-center gap-2">
-                            <Users className="text-blue-500" size={20} />
-                            <CardTitle className="text-white text-lg font-bold uppercase tracking-tight">Loyal Patrons</CardTitle>
-                        </div>
+                <Card className="bg-zinc-900/50 border-zinc-800">
+                    <CardHeader>
+                        <CardTitle className="text-white flex items-center gap-2">
+                            <Users className="text-blue-500" /> Loyal Patrons
+                        </CardTitle>
                     </CardHeader>
                     <CardContent className="p-6">
                         {customerFreqs.length === 0 ? (
                             <p className="text-gray-500 text-center py-10">Waiting for regulars...</p>
                         ) : (
                             <div className="space-y-4">
-                                {customerFreqs.map((cust, idx) => (
+                                {customerFreqs.map((cust) => (
                                     <div key={cust.phone} className="flex items-center gap-4 p-3 bg-white/5 rounded-lg border border-white/5 hover:bg-white/10 transition-colors">
-                                        <div className="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500 font-bold">
+                                        <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-500 font-bold border border-blue-500/20">
                                             {cust.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
                                         </div>
                                         <div className="flex-1">
                                             <p className="text-sm font-bold text-gray-200">{cust.name}</p>
-                                            <p className="text-[10px] text-gray-500 uppercase tracking-widest">{cust.phone}</p>
+                                            <p className="text-[10px] text-gray-500 uppercase tracking-widest font-mono">{cust.phone}</p>
                                         </div>
                                         <div className="text-right">
                                             <p className="text-sm font-black text-white">{cust.count}</p>
@@ -576,30 +654,32 @@ export default function AdminDashboard() {
                                 ))}
                             </div>
                         )}
+                        <p className="text-[9px] text-gray-600 mt-4 text-center font-bold uppercase tracking-widest">
+                            * Based on past {config.loyal_patrons_days} days activity
+                        </p>
                     </CardContent>
                 </Card>
 
                 {/* Hot Locations */}
-                <Card className="bg-white/5 border-white/10 overflow-hidden">
-                    <CardHeader className="border-b border-white/5 bg-white/5">
-                        <div className="flex items-center gap-2">
-                            <MapPin className="text-purple-500" size={20} />
-                            <CardTitle className="text-white text-lg font-bold uppercase tracking-tight">Hot Delivery Zones</CardTitle>
-                        </div>
+                <Card className="bg-zinc-900/50 border-zinc-800">
+                    <CardHeader>
+                        <CardTitle className="text-white flex items-center gap-2">
+                            <MapPin className="text-purple-500" /> Hot Delivery Zones
+                        </CardTitle>
                     </CardHeader>
                     <CardContent className="p-6">
                         {hotLocations.length === 0 ? (
-                            <p className="text-gray-500 text-center py-10">No location data yet</p>
+                            <p className="text-gray-500 text-center py-10">Collecting location data...</p>
                         ) : (
                             <div className="space-y-4">
                                 {hotLocations.map((loc, idx) => (
-                                    <div key={loc.name} className="flex items-center gap-4 p-3 bg-white/5 rounded-lg border border-white/5 hover:bg-white/10 transition-colors">
-                                        <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-xs font-bold text-gray-400">
+                                    <div key={loc.name} className="flex items-center gap-4 p-3 bg-white/5 rounded-xl border border-white/5 hover:bg-white/10 transition-all">
+                                        <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center text-xs font-black text-gray-500">
                                             {idx + 1}
                                         </div>
                                         <div className="flex-1">
                                             <p className="text-sm font-bold text-gray-200">{loc.name}</p>
-                                            <p className="text-[10px] text-gray-500 uppercase tracking-widest">{loc.count} orders</p>
+                                            <p className="text-[10px] text-gray-500 uppercase tracking-[0.2em] font-bold">{loc.count} successful deliveries</p>
                                         </div>
                                         <div className="text-purple-500">
                                             <MapPin size={16} />
@@ -608,13 +688,37 @@ export default function AdminDashboard() {
                                 ))}
                             </div>
                         )}
+                        <p className="text-[9px] text-gray-600 mt-4 text-center font-bold uppercase tracking-widest">
+                            * Performance window: past {config.hot_zones_days} days
+                        </p>
+                    </CardContent>
+                </Card>
+
+                {/* Performance Summary Card */}
+                <Card className="bg-zinc-900/50 border-zinc-800">
+                    <CardHeader>
+                        <CardTitle className="text-white flex items-center gap-2">
+                            <TrendingUp className="text-green-500" /> Daily Efficiency
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-6">
+                        <div className="space-y-6">
+                            <div className="p-4 bg-green-500/5 rounded-2xl border border-green-500/10">
+                                <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mb-1">Avg Order Value</p>
+                                <p className="text-2xl font-black text-white">₹{Math.round(aov)}</p>
+                            </div>
+                            <div className="p-4 bg-blue-500/5 rounded-2xl border border-blue-500/10">
+                                <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mb-1">Pending Requests</p>
+                                <p className="text-2xl font-black text-white">{stats.pendingOrders}</p>
+                            </div>
+                        </div>
                     </CardContent>
                 </Card>
             </div>
 
             {/* Map View Integration */}
-            <Card className="bg-white/5 border-white/10 overflow-hidden">
-                <CardHeader className="border-b border-white/5 bg-white/5 flex flex-row items-center justify-between">
+            <Card className="bg-zinc-900 border border-zinc-800 overflow-hidden">
+                <CardHeader className="border-b border-zinc-800/50 flex flex-row items-center justify-between">
                     <div className="flex items-center gap-2">
                         <MapIcon className="text-blue-500" size={20} />
                         <CardTitle className="text-white text-lg font-bold uppercase tracking-tight">Order Distribution Map</CardTitle>
@@ -625,55 +729,50 @@ export default function AdminDashboard() {
                 </CardContent>
             </Card>
 
-            {/* Recent Orders Table (Original) */}
-            <Card className="bg-white/5 border-white/10">
+            {/* Recent Orders Table */}
+            <Card className="bg-zinc-900 border border-zinc-800">
                 <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle className="text-white uppercase tracking-widest text-sm font-bold opacity-70">Recent Transactions</CardTitle>
+                    <CardTitle className="text-white uppercase tracking-widest text-[10px] font-black opacity-40">System Transaction Log</CardTitle>
                     <Link
                         href="/admin/orders"
-                        className="text-xs text-[var(--color-pizza-red)] hover:underline font-bold uppercase tracking-widest"
+                        className="text-[10px] text-[var(--color-pizza-red)] hover:brightness-125 font-black uppercase tracking-widest transition-all"
                     >
-                        View All Activity →
+                        Master Inventory View →
                     </Link>
                 </CardHeader>
                 <CardContent>
                     {recentOrders.length === 0 ? (
-                        <p className="text-gray-400 text-center py-8">No orders yet</p>
+                        <p className="text-gray-400 text-center py-12 font-bold uppercase tracking-widest text-xs opacity-20">Standby for Orders...</p>
                     ) : (
-                        <div className="space-y-4">
+                        <div className="space-y-3">
                             {recentOrders.map((order) => (
                                 <div
                                     key={order.id}
-                                    className="flex items-center justify-between p-4 bg-black/20 rounded-lg hover:bg-black/30 transition-colors border border-white/5 group"
+                                    className="flex items-center justify-between p-4 bg-black/40 rounded-2xl hover:bg-black/60 transition-all border border-white/5 group"
                                 >
-                                    <div className="flex-1">
-                                        <div className="flex items-center gap-2">
-                                            <p className="font-bold text-gray-200">{order.customer_name}</p>
-                                            <div className="flex items-center gap-1 bg-white/5 px-1.5 py-0.5 rounded border border-white/10 group/id">
-                                                <span className="text-[10px] text-[var(--color-pizza-red)] font-bold font-mono">#{order.id.slice(0, 8)}</span>
-                                                <CopyButton text={order.id.slice(0, 8)} className="h-4 w-4 p-0 opacity-0 group-hover/id:opacity-100 transition-opacity" />
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-3">
+                                            <p className="font-black text-gray-200 truncate">{order.customer_name}</p>
+                                            <div className="flex items-center gap-1 bg-white/5 px-2 py-0.5 rounded-lg border border-white/10 shrink-0">
+                                                <span className="text-[10px] text-[var(--color-pizza-red)] font-black font-mono tracking-tighter">#{order.id.slice(0, 8)}</span>
+                                                <CopyButton text={order.id.slice(0, 8)} className="h-4 w-4 p-0 opacity-0 group-hover:opacity-100 transition-opacity" />
                                             </div>
                                         </div>
-                                        <p className="text-[10px] text-gray-500 font-mono mt-0.5 opacity-50 truncate max-w-[150px]">
-                                            Full ID: {order.id}
-                                        </p>
-                                        <div className="flex items-center gap-3 mt-1.5">
-                                            <div className="flex items-center gap-1 text-[10px] text-gray-500">
-                                                <Clock size={10} />
+                                        <div className="flex items-center gap-4 mt-2">
+                                            <div className="flex items-center gap-1 text-[9px] text-gray-500 font-bold uppercase tracking-widest">
+                                                <Clock size={12} className="text-gray-600" />
                                                 {new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                             </div>
-                                            <div className="flex items-center gap-1 text-[10px] text-gray-500">
-                                                <MapPin size={10} />
-                                                <span className="truncate max-w-[100px]">{order.address}</span>
+                                            <div className="flex items-center gap-1 text-[9px] text-gray-500 font-bold uppercase tracking-widest truncate">
+                                                <MapPin size={12} className="text-gray-600" />
+                                                <span className="truncate max-w-[120px]">{order.address || "Counter"}</span>
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-6">
+                                    <div className="flex items-center gap-6 shrink-0">
                                         <div className="text-right">
-                                            <p className="font-bold text-white text-lg">
-                                                ₹{order.total_amount}
-                                            </p>
-                                            <Badge variant="outline" className={getStatusColor(order.status) + " text-[8px] h-4 py-0"}>
+                                            <p className="font-black text-white text-lg">₹{order.total_amount}</p>
+                                            <Badge variant="outline" className={cn(getStatusColor(order.status), "text-[8px] h-4 py-0 font-black border-none")}>
                                                 {order.status}
                                             </Badge>
                                         </div>

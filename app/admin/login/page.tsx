@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { createSession } from "@/lib/auth-server";
+import { verifyAdminLogin } from "@/lib/auth-actions";
 import { motion } from "framer-motion";
 import { Lock, User, ShieldCheck, ArrowRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,28 +14,32 @@ export default function LoginPage() {
     const [password, setPassword] = useState("");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
-    const router = useRouter();
 
-    // Check if already logged in
+    const router = useRouter();
+    // Removed Supabase client from here, we do it on server now
+
+    // Check for session visually (middleware handles enforcement)
     useEffect(() => {
-        const session = localStorage.getItem("pizza_admin_session");
-        if (session) {
-            router.push("/admin");
-        }
-    }, []);
+        fetch("/api/auth/check-session?name=pizza_admin_session")
+            .then(res => res.json())
+            .then(data => {
+                if (data.authenticated) {
+                    router.replace("/admin");
+                }
+            });
+    }, [router]);
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
         setError("");
 
-        // For now, we use the hardcoded credentials from the plan
-        // In a real app, this would be an API call
-        if (username === "admin" && password === "pizza7870") {
-            localStorage.setItem("pizza_admin_session", "active_" + Date.now());
+        const result = await verifyAdminLogin(username, password);
+
+        if (result.success) {
             router.replace("/admin");
         } else {
-            setError("Unauthorized access denied. Check credentials.");
+            setError(result.error || "Login failed");
             setLoading(false);
         }
     };

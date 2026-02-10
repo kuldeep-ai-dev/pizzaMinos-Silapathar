@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, ShoppingBag, Menu as MenuIcon, X, Calendar, ClipboardList, Radio, LogOut, ChefHat } from "lucide-react";
+import { LayoutDashboard, ShoppingBag, Menu as MenuIcon, X, Calendar, ClipboardList, Radio, LogOut, ChefHat, Shield } from "lucide-react";
+import { deleteSession } from "@/lib/auth-server";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/utils/supabase/client";
@@ -12,6 +13,7 @@ const navItems = [
     { label: "POS / Counter", icon: ShoppingBag, href: "/admin/pos" },
     { label: "Kitchen (KDS)", icon: ChefHat, href: "/admin/kds" },
     { label: "Orders", icon: ClipboardList, href: "/admin/orders" },
+    { label: "Staff Matrix", icon: Shield, href: "/admin/staff" },
     { label: "Tables / QR", icon: LayoutDashboard, href: "/admin/tables" },
     { label: "Reservations", icon: Calendar, href: "/admin/reservations" },
     { label: "Offers & Coupons", icon: Radio, href: "/admin/offers" },
@@ -168,8 +170,8 @@ export default function AdminSidebar() {
                                 <span className="text-lg">←</span> Back to Website
                             </Link>
                             <button
-                                onClick={() => {
-                                    localStorage.removeItem("pizza_admin_session");
+                                onClick={async () => {
+                                    await deleteSession("pizza_admin_session");
                                     window.location.href = "/admin/login";
                                 }}
                                 className="flex items-center gap-2 px-2 py-1.5 text-xs text-red-500/40 hover:text-red-500 transition-colors"

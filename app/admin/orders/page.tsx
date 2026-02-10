@@ -33,20 +33,35 @@ interface Order {
     priority?: string;
     created_at: string;
     items?: OrderItem[];
+    assigned_staff_id?: string;
+    received_by_staff_id?: string;
+    assigned_staff?: { name: string };
+    received_by_staff?: { name: string };
+    staff?: { name: string };
 }
 
 export default function OrdersPage() {
     const supabase = createClient();
     const [orders, setOrders] = useState<Order[]>([]);
+    const [staffList, setStaffList] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<"Delivery" | "Dine-in">("Delivery");
+
+    const fetchStaff = async () => {
+        const { data } = await supabase.from("staff").select("id, name, role");
+        setStaffList(data || []);
+    };
 
     const fetchOrders = async (silent = false) => {
         if (!silent) setLoading(true);
 
         const { data: ordersData, error: ordersError } = await supabase
             .from("orders")
-            .select("*")
+            .select(`
+                *,
+                assigned_staff:assigned_staff_id(name),
+                received_by_staff:received_by_staff_id(name)
+            `)
             .order("created_at", { ascending: false });
 
         if (ordersError) {
@@ -72,6 +87,7 @@ export default function OrdersPage() {
 
     useEffect(() => {
         fetchOrders();
+        fetchStaff();
 
         const channel = supabase
             .channel("admin-orders-local")
@@ -95,6 +111,19 @@ export default function OrdersPage() {
             supabase.removeChannel(channel);
         };
     }, []);
+
+    const handleAssignStaff = async (orderId: string, staffId: string) => {
+        const { error } = await supabase
+            .from("orders")
+            .update({ assigned_staff_id: staffId })
+            .eq("id", orderId);
+
+        if (error) {
+            alert("Error assigning staff: " + error.message);
+        } else {
+            fetchOrders(true);
+        }
+    };
 
     const updateStatus = async (id: string, newStatus: string) => {
         if (newStatus === "Cancelled") {
@@ -253,23 +282,53 @@ export default function OrdersPage() {
                                                 )}
                                             </div>
 
-                                            <div className="p-4 bg-black/40 rounded-xl border border-white/5 h-fit">
-                                                <p className="text-[10px] text-gray-500 uppercase font-bold tracking-widest mb-3">Service info</p>
-                                                <div className="space-y-2">
-                                                    <p className="text-sm font-bold text-white">
-                                                        {order.order_type === 'Dine-in' ? "Restaurant Seat" : order.order_type === 'Counter' ? "Counter Sale" : "Home Delivery"}
-                                                    </p>
-                                                    <p className="text-xs text-gray-400 leading-relaxed">{order.address}</p>
-                                                    {order.gps_location && order.order_type === 'Delivery' && (
-                                                        <a
-                                                            href={order.gps_location}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="text-[10px] text-[var(--color-pizza-red)] hover:underline mt-2 font-bold uppercase tracking-widest inline-flex items-center gap-1"
-                                                        >
-                                                            📍 Map Location
-                                                        </a>
-                                                    )}
+                                            <div className="p-4 bg-black/40 rounded-xl border border-white/5 h-fit space-y-4">
+                                                <div>
+                                                    <p className="text-[10px] text-gray-500 uppercase font-bold tracking-widest mb-2">Service info</p>
+                                                    <div className="space-y-1">
+                                                        <p className="text-sm font-bold text-white">
+                                                            {order.order_type === 'Dine-in' ? "Restaurant Seat" : order.order_type === 'Counter' ? "Counter Sale" : "Home Delivery"}
+                                                        </p>
+                                                        <p className="text-xs text-gray-400 leading-relaxed">{order.address}</p>
+                                                        {order.gps_location && order.order_type === 'Delivery' && (
+                                                            <a
+                                                                href={order.gps_location}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="text-[10px] text-[var(--color-pizza-red)] hover:underline mt-2 font-bold uppercase tracking-widest inline-flex items-center gap-1"
+                                                            >
+                                                                📍 Map Location
+                                                            </a>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                <div className="pt-3 border-t border-white/5">
+                                                    <p className="text-[10px] text-gray-500 uppercase font-bold tracking-widest mb-2">Resource Allocation</p>
+                                                    <div className="space-y-3">
+                                                        {order.received_by_staff_id && (
+                                                            <div className="flex items-center gap-2">
+                                                                <Badge className="bg-blue-500/10 text-blue-400 border-none text-[8px] uppercase tracking-widest px-2">Received By</Badge>
+                                                                <span className="text-[10px] text-white font-bold">{order.received_by_staff?.name || 'Captain'}</span>
+                                                            </div>
+                                                        )}
+
+                                                        {order.order_type === 'Delivery' && (
+                                                            <div className="space-y-1.5">
+                                                                <label className="text-[8px] text-zinc-500 uppercase font-black tracking-widest ml-1">Assign Agent</label>
+                                                                <select
+                                                                    value={order.assigned_staff_id || ""}
+                                                                    onChange={(e) => handleAssignStaff(order.id, e.target.value)}
+                                                                    className="w-full bg-white/5 border border-white/10 rounded-lg text-[10px] h-8 px-2 text-white focus:outline-none focus:border-red-500 transition-all font-bold appearance-none"
+                                                                >
+                                                                    <option value="">Pending Assignment</option>
+                                                                    {staffList.filter(s => s.role === 'delivery' || s.role === 'captain').map(s => (
+                                                                        <option key={s.id} value={s.id} className="bg-zinc-900">{s.name} ({s.role})</option>
+                                                                    ))}
+                                                                </select>
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>

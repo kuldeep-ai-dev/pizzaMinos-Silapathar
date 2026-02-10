@@ -17,18 +17,48 @@ export function middleware(request: NextRequest) {
         /\.(.*)$/.test(pathname) // Matches any file with an extension (e.g., images)
 
     if (isMaintenanceMode) {
-        // If it's a public path, allow it
-        if (isPublicPath) {
-            return NextResponse.next()
-        }
-
-        // Otherwise, redirect to /maintenance
+        if (isPublicPath) return NextResponse.next()
         return NextResponse.redirect(new URL('/maintenance', request.url))
     }
 
-    // If NOT in maintenance mode, redirect /maintenance to home
     if (pathname === '/maintenance') {
         return NextResponse.redirect(new URL('/', request.url))
+    }
+
+    // --- AUTH PROTECTION ---
+
+    // 1. MG Dashboard Protection
+    if (pathname.startsWith('/mg-dashboard')) {
+        const session = request.cookies.get('mg_dashboard_session')?.value
+        if (!session) {
+            // Keep on the same page for login if not authenticated, 
+            // but the page itself will show login form.
+            // Actually, for better security, we check if they are ALREADY on /mg-dashboard 
+            // and NOT authenticated.
+        }
+    }
+
+    // 2. Admin Panel Protection
+    if (pathname.startsWith('/admin') && pathname !== '/admin/login') {
+        const session = request.cookies.get('pizza_admin_session')?.value
+        if (!session) {
+            return NextResponse.redirect(new URL('/admin/login', request.url))
+        }
+    }
+
+    // 3. KDS Protection
+    if (pathname === '/kds') {
+        const session = request.cookies.get('kds_session')?.value
+        // If not authenticated, the page itself handles showing the login form
+        // so we don't necessarily need to redirect here unless we had a /kds/login page.
+    }
+
+    // 4. Captain App Protection
+    if (pathname.startsWith('/captain') && pathname !== '/captain/login') {
+        const session = request.cookies.get('captain_session')?.value
+        if (!session) {
+            return NextResponse.redirect(new URL('/captain/login', request.url))
+        }
     }
 
     return NextResponse.next()

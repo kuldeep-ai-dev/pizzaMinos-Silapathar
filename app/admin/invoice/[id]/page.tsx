@@ -70,22 +70,26 @@ export default function InvoicePage() {
                         margin: 0;
                         size: auto;
                     }
-                    body {
-                        background-color: white;
-                        color: black;
+                    html, body {
+                        background: white !important;
+                        margin: 0 !important;
+                        padding: 0 !important;
                         -webkit-print-color-adjust: exact;
-                        print-color-adjust: exact;
                     }
                     .no-print {
                         display: none !important;
                     }
+                    header, footer, nav, aside {
+                        display: none !important;
+                    }
                     .thermal-invoice {
                         width: 100% !important;
-                        max-width: 300px !important;
-                        margin: 0 auto !important;
+                        max-width: 100% !important;
+                        margin: 0 !important;
                         padding: 10px !important;
                         border: none !important;
                         box-shadow: none !important;
+                        float: none !important;
                     }
                     * {
                         background: transparent !important;

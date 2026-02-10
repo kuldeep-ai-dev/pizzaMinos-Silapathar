@@ -3,9 +3,16 @@
 import { useState, useEffect } from "react";
 import AdminSplashScreen from "./AdminSplashScreen";
 import { AnimatePresence, motion } from "framer-motion";
+import { usePathname } from "next/navigation";
 
 export default function AdminSplashProvider({ children }: { children: React.ReactNode }) {
-    const [isLoading, setIsLoading] = useState(true);
+    const pathname = usePathname();
+    const isInvoice = pathname?.startsWith("/admin/invoice");
+    const [isLoading, setIsLoading] = useState(!isInvoice);
+
+    useEffect(() => {
+        if (isInvoice) setIsLoading(false);
+    }, [isInvoice]);
 
     return (
         <>
@@ -16,7 +23,7 @@ export default function AdminSplashProvider({ children }: { children: React.Reac
             </AnimatePresence>
 
             <motion.div
-                initial={{ opacity: 0 }}
+                initial={isInvoice ? { opacity: 1 } : { opacity: 0 }}
                 animate={!isLoading ? { opacity: 1 } : { opacity: 0 }}
                 transition={{ duration: 0.8, ease: "easeOut" }}
             >

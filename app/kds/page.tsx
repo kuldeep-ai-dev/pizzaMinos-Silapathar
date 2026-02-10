@@ -5,6 +5,8 @@ import KDSView from "@/components/kds/KDSView";
 import { Lock, ChefHat, KeyRound, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/utils/supabase/client";
+import { createSession, getSession } from "@/lib/auth-server";
+import { verifyKDSLogin } from "@/lib/auth-actions";
 
 export default function PublicKDSPage() {
     const [password, setPassword] = useState("");
@@ -33,27 +35,30 @@ export default function PublicKDSPage() {
         fetchPass();
 
         // Check session storage to keep user logged in during the tab session
-        const kdsSession = sessionStorage.getItem("kds_auth");
-        if (kdsSession === "true") {
-            setIsAuthorized(true);
-        }
+        const checkAuth = async () => {
+            const session = await getSession("kds_session");
+            if (session === "authorized") {
+                setIsAuthorized(true);
+            }
+        };
+        checkAuth();
     }, []);
 
-    const handleLogin = (e: React.FormEvent) => {
+    const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
         setVerifying(true);
         setError("");
 
-        setTimeout(() => {
-            if (password === correctPass) {
-                setIsAuthorized(true);
-                sessionStorage.setItem("kds_auth", "true");
-            } else {
-                setError("Incorrect Access Key. Please try again.");
-                setPassword("");
-            }
-            setVerifying(false);
-        }, 800);
+        const result = await verifyKDSLogin(password);
+
+        if (result.success) {
+            setIsAuthorized(true);
+            setError("");
+        } else {
+            setError(result.error || "Invalid Key");
+            setPassword("");
+        }
+        setVerifying(false);
     };
 
     if (isAuthorized) {
