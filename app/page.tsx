@@ -6,8 +6,7 @@ import Footer from "@/components/layout/Footer";
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-[var(--color-dark-bg)] text-white selection:bg-[var(--color-pizza-red)] selection:text-white">
-      <Navbar />
+    <main className="min-h-screen bg-[var(--color-dark-bg)] text-white selection:bg-[var(--color-pizza-red)] selection:text-white overflow-x-hidden">
       <Hero />
       <Menu />
       <Reservation />

@@ -19,6 +19,7 @@ export const metadata: Metadata = {
 
 import { CartProvider } from "@/context/CartContext";
 import SplashProvider from "@/components/layout/SplashProvider";
+import Navbar from "@/components/layout/Navbar";
 
 export default function RootLayout({
   children,
@@ -26,12 +27,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className="scroll-smooth">
       <body
-        className={`${inter.variable} ${oswald.variable} antialiased bg-[#121212] text-white`}
+        className={`${inter.variable} ${oswald.variable} antialiased bg-[#121212] text-white overflow-x-hidden`}
       >
         <SplashProvider>
           <CartProvider>
+            <Navbar />
             {children}
           </CartProvider>
         </SplashProvider>

@@ -22,9 +22,12 @@ const Navbar = () => {
 
     useMotionValueEvent(scrollY, "change", (latest) => {
         const previous = scrollY.getPrevious() || 0;
-        if (latest > previous && latest > 150) {
+        const diff = latest - previous;
+
+        // Threshold of 10px before hiding to prevent jitter
+        if (latest > previous && latest > 150 && diff > 10) {
             setHidden(true);
-        } else {
+        } else if (latest < previous || latest <= 150) {
             setHidden(false);
         }
 

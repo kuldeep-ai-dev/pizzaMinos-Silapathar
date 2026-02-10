@@ -66,9 +66,9 @@ export default function SplashProvider({ children }: { children: React.ReactNode
             </AnimatePresence>
 
             <motion.div
-                initial={isHome ? { opacity: 0, y: 0 } : { opacity: 1 }}
-                animate={!isLoading ? { opacity: 1, y: 0 } : { opacity: 0 }}
-                transition={{ duration: 1, ease: [0.22, 1, 0.36, 1] }}
+                initial={isHome ? { opacity: 0 } : { opacity: 1 }}
+                animate={!isLoading ? { opacity: 1 } : { opacity: 0 }}
+                transition={{ duration: 0.8, ease: "linear" }}
             >
                 {children}
             </motion.div>
