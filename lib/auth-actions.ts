@@ -75,3 +75,11 @@ export async function verifyKDSLogin(password: string) {
 
     return { success: false, error: "Incorrect Access Key" }
 }
+
+/**
+ * Logs out the admin by deleting the session cookie.
+ */
+export async function logoutAdmin() {
+    const { deleteSession } = await import("./auth-server")
+    await deleteSession("pizza_admin_session")
+}

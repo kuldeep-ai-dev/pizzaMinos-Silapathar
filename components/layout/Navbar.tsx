@@ -9,12 +9,22 @@ import { Menu, X, ShoppingCart } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCart } from "@/context/CartContext";
 import CartSidebar from "@/components/orders/CartSidebar";
+import { usePathname } from "next/navigation";
 
 const Navbar = () => {
+    const pathname = usePathname();
     const { scrollY } = useScroll();
     const [hidden, setHidden] = useState(false);
     const [scrolled, setScrolled] = useState(false);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+    // Hide Navbar on restricted routes
+    const isRestrictedRoute = pathname?.startsWith("/admin") ||
+        pathname?.startsWith("/captain") ||
+        pathname?.startsWith("/kds") ||
+        pathname?.startsWith("/mg-dashboard");
+
+    if (isRestrictedRoute) return null;
 
     // Cart Hook
     const { toggleCart, items } = useCart();
