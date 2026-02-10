@@ -283,12 +283,17 @@ export default function AdminPOSPage() {
                 </div>
 
                 {/* Right: Cart & Order Info */}
-                <div className="w-96 bg-black border-l border-white/10 flex flex-col p-6">
-                    <div className="flex flex-col gap-4 mb-6">
+                <div className="w-96 bg-black border-l border-white/10 flex flex-col items-stretch">
+                    {/* Header: Fixed */}
+                    <div className="p-6 pb-2 border-b border-white/5">
                         <h2 className="text-xl font-display font-bold text-white flex items-center gap-2">
                             <ShoppingCart className="text-[var(--color-pizza-red)]" /> Counter Cart
                         </h2>
+                    </div>
 
+                    {/* Scrollable Content Area */}
+                    <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
+                        {/* Order Details Form */}
                         <div className="space-y-4">
                             <div className="space-y-2">
                                 <label className="text-[10px] uppercase text-gray-500 font-bold tracking-widest">Order Notes</label>
@@ -351,8 +356,10 @@ export default function AdminPOSPage() {
                                 <div className="grid grid-cols-3 gap-2">
                                     <button
                                         onClick={() => setSelectedTable("Walk-in")}
-                                        className={`py-2 rounded-lg text-[10px] font-bold border transition-all ${selectedTable === "Walk-in" ? 'bg-white text-black border-white' : 'bg-white/5 text-gray-500 border-white/5'
-                                            }`}
+                                        className={cn(
+                                            "py-2 rounded-lg text-[10px] font-bold border transition-all",
+                                            selectedTable === "Walk-in" ? 'bg-white text-black border-white' : 'bg-white/5 text-gray-500 border-white/5'
+                                        )}
                                     >
                                         WALK-IN
                                     </button>
@@ -360,8 +367,10 @@ export default function AdminPOSPage() {
                                         <button
                                             key={t.id}
                                             onClick={() => setSelectedTable(t.id)}
-                                            className={`py-2 rounded-lg text-[10px] font-bold border transition-all ${selectedTable === t.id ? 'bg-[var(--color-pizza-red)] text-white border-[var(--color-pizza-red)]' : 'bg-white/5 text-gray-500 border-white/5'
-                                                }`}
+                                            className={cn(
+                                                "py-2 rounded-lg text-[10px] font-bold border transition-all",
+                                                selectedTable === t.id ? 'bg-[var(--color-pizza-red)] text-white border-[var(--color-pizza-red)]' : 'bg-white/5 text-gray-500 border-white/5'
+                                            )}
                                         >
                                             T-{t.table_number}
                                         </button>
@@ -369,46 +378,64 @@ export default function AdminPOSPage() {
                                 </div>
                             </div>
                         </div>
+
+                        {/* Cart Items List */}
+                        <div className="space-y-3">
+                            <label className="text-[10px] uppercase text-gray-500 font-bold tracking-widest block mb-2">Items in Cart</label>
+                            {cart.length === 0 ? (
+                                <div className="text-center py-8 border border-dashed border-white/5 rounded-xl">
+                                    <p className="text-[10px] text-gray-600 font-bold uppercase tracking-widest">Cart is empty</p>
+                                </div>
+                            ) : (
+                                <AnimatePresence initial={false}>
+                                    {cart.map(item => (
+                                        <motion.div
+                                            key={item.id}
+                                            layout
+                                            initial={{ x: 20, opacity: 0 }}
+                                            animate={{ x: 0, opacity: 1 }}
+                                            exit={{ x: -20, opacity: 0 }}
+                                            className="bg-white/5 p-3 rounded-xl border border-white/10 flex items-center justify-between group"
+                                        >
+                                            <div className="flex-1">
+                                                <h4 className="text-xs font-bold text-white group-hover:text-[var(--color-pizza-red)] transition-colors">{item.name}</h4>
+                                                <p className="text-[10px] text-gray-400 font-mono mt-0.5">
+                                                    {item.variant ? <span className="text-[var(--color-pizza-red)] font-bold">{item.variant}</span> : 'Standard'} • ₹{item.price}
+                                                </p>
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                <div className="flex items-center bg-black/60 rounded-lg border border-white/10 p-0.5">
+                                                    <button onClick={() => updateQuantity(item.id, -1)} className="p-1 hover:text-white text-gray-500 transition-colors"><Minus size={10} /></button>
+                                                    <span className="text-[10px] font-black min-w-[1.2rem] text-center text-white">{item.quantity}</span>
+                                                    <button onClick={() => updateQuantity(item.id, 1)} className="p-1 hover:text-white text-gray-500 transition-colors"><Plus size={10} /></button>
+                                                </div>
+                                            </div>
+                                        </motion.div>
+                                    ))}
+                                </AnimatePresence>
+                            )}
+                        </div>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto space-y-3 mb-6 pr-2 custom-scrollbar">
-                        <AnimatePresence>
-                            {cart.map(item => (
-                                <motion.div
-                                    key={item.id}
-                                    layout
-                                    initial={{ x: 20, opacity: 0 }}
-                                    animate={{ x: 0, opacity: 1 }}
-                                    exit={{ x: -20, opacity: 0 }}
-                                    className="bg-white/5 p-3 rounded-xl border border-white/10 flex items-center justify-between"
-                                >
-                                    <div className="flex-1">
-                                        <h4 className="text-xs font-bold text-white">{item.name}</h4>
-                                        <p className="text-[10px] text-gray-500">{item.variant ? `${item.variant} • ` : ''}₹{item.price}</p>
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                        <div className="flex items-center bg-black rounded-lg border border-white/10">
-                                            <button onClick={() => updateQuantity(item.id, -1)} className="p-1.5 hover:text-white text-gray-600"><Minus size={12} /></button>
-                                            <span className="text-xs font-bold min-w-[1.5rem] text-center">{item.quantity}</span>
-                                            <button onClick={() => updateQuantity(item.id, 1)} className="p-1.5 hover:text-white text-gray-600"><Plus size={12} /></button>
-                                        </div>
-                                    </div>
-                                </motion.div>
-                            ))}
-                        </AnimatePresence>
-                    </div>
-
-                    <div className="bg-white/5 p-4 rounded-xl border border-white/10 space-y-4">
+                    {/* Footer: Fixed */}
+                    <div className="p-6 bg-zinc-950/80 backdrop-blur-md border-t border-white/10 space-y-4">
                         <div className="flex justify-between items-center px-1">
-                            <span className="text-sm text-gray-400">Total Amount</span>
-                            <span className="text-2xl font-display font-bold text-[var(--color-pizza-red)]">₹{cartTotal}</span>
+                            <span className="text-[10px] uppercase font-bold text-gray-500 tracking-[0.2em]">Subtotal</span>
+                            <span className="text-2xl font-display font-black text-[var(--color-pizza-red)]">₹{cartTotal}</span>
                         </div>
                         <Button
                             onClick={handlePlaceOrder}
                             disabled={cart.length === 0 || isSubmitting}
-                            className="w-full h-14 bg-[var(--color-pizza-red)] hover:bg-[var(--color-pizza-red)]/90 text-white font-bold text-lg rounded-xl shadow-xl shadow-[var(--color-pizza-red)]/20 uppercase tracking-widest gap-2"
+                            className="w-full h-14 bg-[var(--color-pizza-red)] hover:bg-[var(--color-pizza-red)]/90 text-white font-bold text-base rounded-xl shadow-[0_0_30px_rgba(239,68,68,0.2)] uppercase tracking-widest gap-2 group transition-all"
                         >
-                            {isSubmitting ? <Loader2 className="animate-spin" /> : <><Banknote size={20} /> Place Order</>}
+                            {isSubmitting ? (
+                                <Loader2 className="animate-spin" />
+                            ) : (
+                                <>
+                                    <Banknote size={20} className="group-hover:scale-110 transition-transform" />
+                                    <span>Place order</span>
+                                </>
+                            )}
                         </Button>
                     </div>
                 </div>

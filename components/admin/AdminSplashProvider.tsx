@@ -13,6 +13,7 @@ export default function AdminSplashProvider({ children }: { children: React.Reac
     const [isLoading, setIsLoading] = useState(!isInvoice);
     const sessionIdRef = useRef<string | null>(null);
     const lastPingRef = useRef<number>(0);
+    const isInitialMount = useRef(true);
 
     // --- SESSION TIMEOUT & TRACKING LOGIC ---
     const TIMEOUT_MS = 8 * 60 * 1000; // 8 minutes
@@ -31,6 +32,8 @@ export default function AdminSplashProvider({ children }: { children: React.Reac
     // Session Registration & Heartbeat
     useEffect(() => {
         if (pathname === "/admin/login") return;
+        if (!isInitialMount.current) return;
+        isInitialMount.current = false;
 
         const initSession = async () => {
             let sId = localStorage.getItem("pizza_admin_device_id");
@@ -40,9 +43,25 @@ export default function AdminSplashProvider({ children }: { children: React.Reac
             }
             sessionIdRef.current = sId;
 
+            // Safe fetch helper with timeout
+            const safeFetch = async (url: string, timeout = 5000) => {
+                const controller = new AbortController();
+                const id = setTimeout(() => controller.abort(), timeout);
+                try {
+                    const response = await fetch(url, { signal: controller.signal });
+                    clearTimeout(id);
+                    return response;
+                } catch (e) {
+                    clearTimeout(id);
+                    throw e;
+                }
+            };
+
             try {
-                // Fetch Location Data (IP-API is free for non-commercial/low-volume)
-                const res = await fetch("https://ipapi.co/json/");
+                // Fetch Location Data with timeout to prevent blocking
+                const res = await safeFetch("https://ipapi.co/json/");
+                if (!res.ok) throw new Error("API Response Error");
+
                 const data = await res.json();
                 const locationStr = `${data.city || "Unknown City"}, ${data.region || ""}, ${data.country_name || ""}`;
 
@@ -53,12 +72,11 @@ export default function AdminSplashProvider({ children }: { children: React.Reac
                     location: locationStr
                 });
             } catch (err) {
-                console.error("Session registration failed:", err);
-                // Fallback registration without geo
+                console.warn("Geo-location fetch failed, using fallback tracking:", err);
                 await registerAdminSession({
                     sessionId: sId,
                     userAgent: navigator.userAgent,
-                    ip: "Unknown",
+                    ip: "Local/Protected",
                     location: "Unknown Location"
                 });
             }
