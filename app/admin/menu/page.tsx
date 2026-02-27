@@ -32,7 +32,18 @@ export default function MenuManagement() {
     });
 
     const fetchDropdownData = async () => {
-        const { data: catData } = await supabase.from("menu_categories").select("*").order("name");
+        const { data: catData, error } = await supabase.from("menu_categories").select("*").order("name");
+
+        if (error) {
+            console.error("Error fetching categories:", {
+                message: error.message,
+                details: error.details,
+                hint: error.hint,
+                code: error.code
+            });
+            return;
+        }
+
         setCategories(catData || []);
         if (catData && catData.length > 0 && !formData.category) {
             setFormData(prev => ({ ...prev, category: catData[0].name }));
@@ -45,8 +56,16 @@ export default function MenuManagement() {
     const fetchMenu = async () => {
         setLoading(true);
         const { data, error } = await supabase.from("menu_items").select("*").order("name");
-        if (error) console.error(error);
-        else setItems(data || []);
+        if (error) {
+            console.error("Error fetching menu items:", {
+                message: error.message,
+                details: error.details,
+                hint: error.hint,
+                code: error.code
+            });
+        } else {
+            setItems(data || []);
+        }
         setLoading(false);
     };
 

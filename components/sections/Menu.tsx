@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { ShoppingCart, Pizza, Coffee, Sandwich, Drumstick } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCart } from "@/context/CartContext";
-import { createClient } from "@/utils/supabase/client";
 
 // Define categories
 type Category = "Veg Pizza" | "Chicken Pizza" | "Burgers" | "Drinks" | "Sides";
@@ -149,67 +148,27 @@ const MenuItemCard = ({ item, activeCampaigns }: { item: MenuItem; activeCampaig
 
 import { calculateDiscountedPrice } from "@/utils/pricing";
 
-// ... existing types ...
+interface MenuProps {
+    compact?: boolean;
+    initialCategories?: any[];
+    initialItems?: any[];
+    initialCampaigns?: any[];
+}
 
-const Menu = ({ compact = false }: { compact?: boolean }) => {
-    const [activeCategory, setActiveCategory] = useState<string>("");
-    const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
-    const [items, setItems] = useState<MenuItem[]>([]);
-    const [activeCampaigns, setActiveCampaigns] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
-    const supabase = createClient();
+const Menu = ({ compact = false, initialCategories = [], initialItems = [], initialCampaigns = [] }: MenuProps) => {
+    const [activeCategory, setActiveCategory] = useState<string>(initialCategories.length > 0 ? initialCategories[0].name : "");
+    const [categories, setCategories] = useState<{ id: string; name: string }[]>(initialCategories);
+    const [items, setItems] = useState<MenuItem[]>(initialItems);
+    const [activeCampaigns, setActiveCampaigns] = useState<any[]>(initialCampaigns);
+    const [loading, setLoading] = useState(false);
 
     useEffect(() => {
-        const fetchMenuData = async () => {
-            setLoading(true);
-            try {
-                // Parallelized fetching for faster load
-                const [categoriesRes, itemsRes, variantsRes, campaignsRes] = await Promise.all([
-                    supabase.from("menu_categories").select("*").order("name"),
-                    supabase.from("menu_items").select("*").eq("is_available", true),
-                    supabase.from("menu_variants").select("*"),
-                    supabase.from("campaigns").select("*").eq("is_active", true)
-                ]);
-
-                if (categoriesRes.error) throw categoriesRes.error;
-                if (itemsRes.error) throw itemsRes.error;
-
-                const catData = categoriesRes.data || [];
-                setCategories(catData);
-                if (catData.length > 0) setActiveCategory(catData[0].name);
-
-                const menuData = itemsRes.data || [];
-                const variantsData = variantsRes.data || [];
-                const campaignsData = campaignsRes.data || [];
-
-                setActiveCampaigns(campaignsData);
-
-                // Merge variants into items
-                const mergedItems = menuData.map((item: any) => ({
-                    ...item,
-                    variants: variantsData.filter((v: any) => v.menu_item_id === item.id) || []
-                }));
-
-                setItems(mergedItems);
-
-                // Signal that data is ready for the splash screen
-                if (typeof window !== "undefined") {
-                    (window as any).__MENU_DATA_READY__ = true;
-                    window.dispatchEvent(new Event("menuDataReady"));
-                }
-            } catch (error) {
-                console.error("Error fetching menu data:", error);
-                // Even on error, we should probably signal so the splash doesn't hang
-                if (typeof window !== "undefined") {
-                    (window as any).__MENU_DATA_READY__ = true;
-                    window.dispatchEvent(new Event("menuDataReady"));
-                }
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchMenuData();
+        // Data is passed securely from the server via props.
+        // We just need to signal the splash screen to hide itself.
+        if (typeof window !== "undefined") {
+            (window as any).__MENU_DATA_READY__ = true;
+            window.dispatchEvent(new Event("menuDataReady"));
+        }
     }, []);
 
     const filteredItems = items.filter((item) => item.category === activeCategory);

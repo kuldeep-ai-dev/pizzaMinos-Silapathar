@@ -27,9 +27,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="scroll-smooth">
+    <html lang="en" className="scroll-smooth" suppressHydrationWarning>
       <body
         className={`${inter.variable} ${oswald.variable} antialiased bg-[#121212] text-white overflow-x-hidden`}
+        suppressHydrationWarning
       >
         <SplashProvider>
           <CartProvider>
