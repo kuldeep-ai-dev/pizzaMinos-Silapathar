@@ -156,11 +156,14 @@ interface MenuProps {
 }
 
 const Menu = ({ compact = false, initialCategories = [], initialItems = [], initialCampaigns = [] }: MenuProps) => {
-    const [activeCategory, setActiveCategory] = useState<string>(initialCategories.length > 0 ? initialCategories[0].name : "");
-    const [categories, setCategories] = useState<{ id: string; name: string }[]>(initialCategories);
-    const [items, setItems] = useState<MenuItem[]>(initialItems);
-    const [activeCampaigns, setActiveCampaigns] = useState<any[]>(initialCampaigns);
-    const [loading, setLoading] = useState(false);
+    const [activeCategory, setActiveCategory] = useState<string>("");
+
+    useEffect(() => {
+        // If categories load and no active category is selected, select the first one.
+        if (initialCategories.length > 0 && !activeCategory) {
+            setActiveCategory(initialCategories[0].name);
+        }
+    }, [initialCategories, activeCategory]);
 
     useEffect(() => {
         // Data is passed securely from the server via props.
@@ -171,7 +174,7 @@ const Menu = ({ compact = false, initialCategories = [], initialItems = [], init
         }
     }, []);
 
-    const filteredItems = items.filter((item) => item.category === activeCategory);
+    const filteredItems = initialItems.filter((item: any) => item.category === activeCategory);
 
     return (
         <section id="menu" className={cn(
@@ -207,9 +210,9 @@ const Menu = ({ compact = false, initialCategories = [], initialItems = [], init
 
                 {/* Category Tabs */}
                 <div className="flex flex-wrap justify-center gap-3 mb-20">
-                    {categories.map((cat) => (
+                    {initialCategories.map((cat: any) => (
                         <button
-                            key={cat.id}
+                            key={cat.id || cat.name}
                             onClick={() => setActiveCategory(cat.name)}
                             className={cn(
                                 "flex items-center gap-3 px-8 py-4 rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] transition-all duration-500 border",
@@ -224,7 +227,7 @@ const Menu = ({ compact = false, initialCategories = [], initialItems = [], init
                 </div>
 
                 {/* Menu Grid */}
-                {loading ? (
+                {!initialCategories.length || !initialItems.length ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
                         {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
                             <div key={i} className="h-[400px] rounded-2xl bg-white/5 border border-white/10 animate-pulse flex flex-col overflow-hidden">
@@ -246,7 +249,7 @@ const Menu = ({ compact = false, initialCategories = [], initialItems = [], init
                                     <p className="font-black uppercase tracking-widest text-sm">No items in this category yet</p>
                                 </div>
                             ) : (
-                                filteredItems.map((item) => (
+                                filteredItems.map((item: any) => (
                                     <motion.div
                                         key={item.id}
                                         initial={{ opacity: 0, y: 10 }}
@@ -254,7 +257,7 @@ const Menu = ({ compact = false, initialCategories = [], initialItems = [], init
                                         exit={{ opacity: 0, scale: 0.95 }}
                                         transition={{ duration: 0.3 }}
                                     >
-                                        <MenuItemCard item={item as any} activeCampaigns={activeCampaigns} />
+                                        <MenuItemCard item={item as any} activeCampaigns={initialCampaigns} />
                                     </motion.div>
                                 ))
                             )}
