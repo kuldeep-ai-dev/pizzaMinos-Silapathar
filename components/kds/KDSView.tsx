@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { createClient } from "@/utils/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -41,6 +41,30 @@ export default function KDSView() {
     const [orders, setOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
 
+    const prevOrderIds = useRef<string>("");
+
+    const playNotificationSound = () => {
+        try {
+            const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+            const playBeep = (freq: number, start: number) => {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.type = "sine";
+                osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
+                gain.gain.setValueAtTime(0.5, ctx.currentTime + start);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + start + 0.2);
+                osc.start(ctx.currentTime + start);
+                osc.stop(ctx.currentTime + start + 0.2);
+            };
+            playBeep(880, 0);       // High beep
+            playBeep(1108.73, 0.15); // Higher beep (C#6)
+        } catch (e) {
+            console.error("Audio playback failed", e);
+        }
+    };
+
     const fetchKDSOrders = async () => {
         const { data: ordersData, error } = await supabase
             .from("orders")
@@ -59,6 +83,17 @@ export default function KDSView() {
             table_number: order.res_tables?.table_number
         }));
 
+        // Check for new orders to play sound
+        const currentIds = formattedOrders.map(o => o.id).join(',');
+        if (prevOrderIds.current && prevOrderIds.current !== currentIds) {
+            const oldIds = prevOrderIds.current.split(',');
+            const newOrdersAdded = formattedOrders.some(o => !oldIds.includes(o.id));
+            if (newOrdersAdded) {
+                playNotificationSound();
+            }
+        }
+        prevOrderIds.current = currentIds;
+
         setOrders(formattedOrders);
         setLoading(false);
     };
@@ -66,22 +101,13 @@ export default function KDSView() {
     useEffect(() => {
         fetchKDSOrders();
 
-        const channel = supabase
-            .channel("kds-realtime")
-            .on(
-                "postgres_changes",
-                { event: "*", schema: "public", table: "orders" },
-                () => fetchKDSOrders()
-            )
-            .on(
-                "postgres_changes",
-                { event: "*", schema: "public", table: "order_items" },
-                () => fetchKDSOrders()
-            )
-            .subscribe();
+        // Polling fallback since Vercel API Proxy does not support streaming WebSockets
+        const intervalId = setInterval(() => {
+            fetchKDSOrders();
+        }, 5000);
 
         return () => {
-            supabase.removeChannel(channel);
+            clearInterval(intervalId);
         };
     }, []);
 

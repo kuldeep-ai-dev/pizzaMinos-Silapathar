@@ -89,26 +89,13 @@ export default function OrdersPage() {
         fetchOrders();
         fetchStaff();
 
-        const channel = supabase
-            .channel("admin-orders-local")
-            .on(
-                "postgres_changes",
-                { event: "*", schema: "public", table: "orders" },
-                () => {
-                    fetchOrders(true);
-                }
-            )
-            .on(
-                "postgres_changes",
-                { event: "*", schema: "public", table: "order_items" },
-                () => {
-                    fetchOrders(true);
-                }
-            )
-            .subscribe();
+        // Polling fallback since Vercel API Proxy does not support streaming WebSockets
+        const intervalId = setInterval(() => {
+            fetchOrders(true);
+        }, 5000);
 
         return () => {
-            supabase.removeChannel(channel);
+            clearInterval(intervalId);
         };
     }, []);
 
