@@ -19,8 +19,13 @@ export default function DineInPage() {
     const [loading, setLoading] = useState(true);
     const [showInfoDialog, setShowInfoDialog] = useState(false);
     const [customerInfo, setCustomerInfo] = useState({ name: "", phone: "" });
-    const { items, cartTotal, clearCart } = useCart();
+    const { items: cartItems, cartTotal, clearCart } = useCart();
     const supabase = createClient();
+
+    // Menu Data States
+    const [menuCategories, setMenuCategories] = useState<any[]>([]);
+    const [menuData, setMenuData] = useState<any[]>([]);
+    const [activeCampaigns, setActiveCampaigns] = useState<any[]>([]);
 
     const fetchTableAndOrder = async () => {
         if (!id) return;
@@ -45,6 +50,30 @@ export default function DineInPage() {
             .maybeSingle();
 
         setActiveOrder(orderData);
+
+        // Fetch Menu Data (Using Proxy)
+        const [categoriesRes, itemsRes, variantsRes, campaignsRes] = await Promise.all([
+            supabase.from("menu_categories").select("*").order("name"),
+            supabase.from("menu_items").select("*").eq("is_available", true),
+            supabase.from("menu_variants").select("*"),
+            supabase.from("campaigns").select("*").eq("is_active", true)
+        ]);
+
+        const fetchedCategories = categoriesRes.data || [];
+        const fetchedItems = itemsRes.data || [];
+        const fetchedVariants = variantsRes.data || [];
+        const fetchedCampaigns = campaignsRes.data || [];
+
+        // Merge variants into items
+        const mergedItems = fetchedItems.map((item: any) => ({
+            ...item,
+            variants: fetchedVariants.filter((v: any) => v.menu_item_id === item.id) || []
+        }));
+
+        setMenuCategories(fetchedCategories);
+        setMenuData(mergedItems);
+        setActiveCampaigns(fetchedCampaigns);
+
         setLoading(false);
     };
 
@@ -91,7 +120,7 @@ export default function DineInPage() {
     }, [id]);
 
     const handlePlaceDineInOrder = async () => {
-        if (items.length === 0) return;
+        if (cartItems.length === 0) return;
         if (!customerInfo.name || !customerInfo.phone) {
             setShowInfoDialog(true);
             return;
@@ -121,7 +150,7 @@ export default function DineInPage() {
         }
 
         // 2. Create Order Items
-        const orderItems = items.map(item => ({
+        const orderItemsLocal = cartItems.map(item => ({
             order_id: orderData.id,
             menu_item_name: item.name,
             variant_name: item.variant,
@@ -130,7 +159,7 @@ export default function DineInPage() {
             subtotal: parseInt(item.price.replace(/[^0-9]/g, "")) * item.quantity
         }));
 
-        await supabase.from("order_items").insert(orderItems);
+        await supabase.from("order_items").insert(orderItemsLocal);
 
         // Refresh to show status view
         fetchTableAndOrder();
@@ -243,9 +272,9 @@ export default function DineInPage() {
                     </div>
                     <div className="relative group">
                         <ShoppingBag className="text-white group-hover:scale-110 transition-transform" />
-                        {items.length > 0 && (
+                        {cartItems.length > 0 && (
                             <span className="absolute -top-2 -right-2 bg-[var(--color-pizza-red)] text-white text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center border-2 border-[var(--color-dark-bg)] shadow-lg animate-pulse">
-                                {items.length}
+                                {cartItems.length}
                             </span>
                         )}
                     </div>
@@ -266,7 +295,12 @@ export default function DineInPage() {
                     <p className="text-gray-400 text-xs mt-2 max-w-xs mx-auto italic">Pick your favorites from our premium selection downstairs.</p>
                 </div>
 
-                <Menu compact />
+                <Menu
+                    compact
+                    initialCategories={menuCategories}
+                    initialItems={menuData}
+                    initialCampaigns={activeCampaigns}
+                />
             </div>
 
             {/* Guest Details Modal */}
@@ -331,7 +365,7 @@ export default function DineInPage() {
 
             {/* Floating Action Button for Checkout */}
             <AnimatePresence>
-                {items.length > 0 && !showInfoDialog && (
+                {cartItems.length > 0 && !showInfoDialog && (
                     <motion.div
                         initial={{ y: 100, opacity: 0 }}
                         animate={{ y: 0, opacity: 1 }}
